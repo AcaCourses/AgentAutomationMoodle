@@ -30,8 +30,8 @@ KNOWN_DOMAINS = {
 HF_MODELS_POOL = [
     "Qwen/Qwen2.5-72B-Instruct",
     "meta-llama/Llama-3.3-70B-Instruct",
-    "mistralai/Mistral-7B-Instruct-v0.3",
-    "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
+    "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "mistralai/Mistral-Nemo-Instruct-2407"
 ]
 
 GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
@@ -367,9 +367,20 @@ class AIService:
                 raw = res.choices[0].message.content.strip()
 
                 if "```" in raw:
-                    raw = raw.split("```json")[-1].split("```")[0].strip()
+                    parts = raw.split("```")
+                    for p in parts:
+                        p_str = p.strip()
+                        if p_str.startswith("json"):
+                            p_str = p_str[4:].strip()
+                        if p_str.startswith("{") and p_str.endswith("}"):
+                            raw = p_str
+                            break
 
-                data = json.loads(raw)
+                try:
+                    data = json.loads(raw, strict=False)
+                except Exception:
+                    cleaned_raw = re.sub(r'[\r\n]+', r'\\n', raw)
+                    data = json.loads(cleaned_raw, strict=False)
                 data["url"] = url
                 if is_job_post:
                     data["categoria_moodle"] = "Interns & Job Offers"
