@@ -2,7 +2,7 @@ import os
 import sys
 import re
 import subprocess
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Optional, Callable
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 from app.config import config
 
@@ -15,16 +15,26 @@ class MoodleService:
         self.default_courses = config.COURSE_IDS
         self.session_file = config.SESSION_FILE
 
-    def take_debug_screenshot(self, page: Page, name: str = "debug_screenshot.png") -> str:
+    def _log(self, msg: str, level: str = "info", cb: Optional[Callable[[str, str], None]] = None):
+        print(msg)
+        if cb:
+            try:
+                cb(msg, level)
+            except Exception:
+                pass
+
+    def take_debug_screenshot(self, page: Page, name: str = "debug_screenshot.png", cb: Optional[Callable[[str, str], None]] = None) -> str:
         """Captura una captura de pantalla del estado actual para depuración."""
         try:
             os.makedirs("debug", exist_ok=True)
             path = os.path.join("debug", name)
             page.screenshot(path=path, full_page=True)
-            print(f"📸 Captura de pantalla guardada en: {os.path.abspath(path)}")
+            msg = f"📸 Captura de pantalla guardada en: {os.path.abspath(path)}"
+            self._log(msg, "info", cb)
             return path
         except Exception as e:
-            print(f"No se pudo guardar la captura de pantalla: {e}")
+            msg = f"No se pudo guardar la captura de pantalla: {e}"
+            self._log(msg, "warn", cb)
             return ""
 
     def login_and_save_session(self, page: Page, context: BrowserContext) -> None:
@@ -299,12 +309,14 @@ class MoodleService:
                 return p.chromium.launch(headless=True)
             raise e
 
-    def publish_item(self, item: Dict[str, Any], course_id: Any = None) -> List[str]:
+    def publish_item(self, item: Dict[str, Any], course_id: Any = None, log_cb: Optional[Callable[[str, str], None]] = None) -> List[str]:
         """
         Publica un ítem en uno o varios cursos de manera secuencial (uno tras otro).
         """
         courses = self.resolve_target_courses(course_id or item.get("course_id") or item.get("courses"))
         published_courses = []
+
+        self._log(f"🚀 Iniciando proceso de publicación en Moodle para {len(courses)} curso(s)...", "info", log_cb)
 
         with sync_playwright() as p:
             browser = self.launch_browser_safely(p)
@@ -317,11 +329,14 @@ class MoodleService:
             page = context.new_page()
 
             try:
+                self._log("🔑 Autenticando en Moodle SEA Acatlán...", "info", log_cb)
                 self.ensure_authenticated(page, context)
+                self._log("✅ Autenticación completada.", "success", log_cb)
 
                 tipo = item.get("tipo", "recurso_url")
 
                 for cid in courses:
+                    self._log(f"📌 Procesando Curso ID: {cid}", "info", log_cb)
                     if tipo == "recurso_url":
                         self.publish_url_resource(page, item, course_id=cid)
                         published_courses.append(cid)
@@ -335,12 +350,14 @@ class MoodleService:
                 if os.path.exists("debug"):
                     import shutil
                     shutil.rmtree("debug", ignore_errors=True)
-                    print("🧹 Capturas de pantalla de depuración eliminadas tras ejecución exitosa.")
+                    self._log("🧹 Capturas de pantalla de depuración eliminadas tras ejecución exitosa.", "info", log_cb)
+
+                self._log(f"🎉 Publicación finalizada con éxito en {len(published_courses)} curso(s).", "success", log_cb)
 
             except Exception as e:
-                screenshot_path = self.take_debug_screenshot(page, "error_ejecucion_general.png")
-                print(f"❌ Error en la ejecución: {e}")
-                print(f"📸 Revisa la captura en: {os.path.abspath(screenshot_path)}")
+                screenshot_path = self.take_debug_screenshot(page, "error_ejecucion_general.png", cb=log_cb)
+                self._log(f"❌ Error en la ejecución: {e}", "error", log_cb)
+                self._log(f"📸 Revisa la captura en: {os.path.abspath(screenshot_path)}", "error", log_cb)
                 raise e
             finally:
                 browser.close()
