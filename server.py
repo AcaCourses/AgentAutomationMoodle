@@ -22,6 +22,7 @@ def read_root():
         "status": "online",
         "service": "Agente Moodle SEA Acatlán API",
         "version": "2.0.0",
+        "cursos_configurados": config.COURSE_IDS,
     }
 
 
@@ -41,23 +42,22 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
     # 1. Transformación inteligente con Hugging Face (Qwen2.5-72B)
     datos_ia = ai_service.adapt_linkedin_post(payload.texto, payload.url)
     seccion = payload.seccion or datos_ia.get("seccion", 0)
-    target_course_id = payload.course_id or config.DEFAULT_COURSE_ID
+    target_course_id = payload.course_id or config.COURSE_IDS
 
     item_recurso = {
         "tipo": "recurso_url",
         "nombre": datos_ia.get("titulo", "Recurso LinkedIn"),
         "url": payload.url,
         "seccion": seccion,
-        "course_id": target_course_id,
     }
 
-    # 2. Publicación directa en Moodle con Playwright
+    # 2. Publicación directa en Moodle con Playwright (secuencial en uno o varios cursos)
     try:
-        moodle_service.publish_item(item_recurso, course_id=target_course_id)
+        cursos_publicados = moodle_service.publish_item(item_recurso, course_id=target_course_id)
         return {
             "status": "ok",
             "publicado": datos_ia.get("titulo"),
-            "course_id": target_course_id,
+            "cursos_afectados": cursos_publicados,
             "seccion": seccion,
             "datos_ia": datos_ia,
         }

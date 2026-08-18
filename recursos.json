@@ -1,16 +1,8 @@
 [
   {
     "tipo": "recurso_url",
-    "course_id": 22841,
-    "nombre": "Novedades de IA en la Industria (Curso 22841)",
-    "url": "https://www.linkedin.com/posts/ejemplo-post-ia",
-    "seccion": 0,
-    "publicado": false
-  },
-  {
-    "tipo": "recurso_url",
-    "course_id": 22842,
-    "nombre": "Novedades de IA en la Industria (Curso 22842)",
+    "courses": [22841, 22842],
+    "nombre": "Novedades de IA en la Industria (Ambos Cursos)",
     "url": "https://www.linkedin.com/posts/ejemplo-post-ia",
     "seccion": 0,
     "publicado": false
