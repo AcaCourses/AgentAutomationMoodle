@@ -35,7 +35,8 @@ class MoodleService:
         page.fill("#username", self.username)
         page.fill("#password", self.password)
         page.click("#loginbtn")
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(1500)
 
         if "login" in page.url:
             self.take_debug_screenshot(page, "error_login.png")
@@ -67,7 +68,8 @@ class MoodleService:
             if edit_switch.count() > 0 and not edit_switch.first.is_checked():
                 print("Activando 'Modo de edición'...")
                 edit_switch.first.click()
-                page.wait_for_load_state("networkidle")
+                page.wait_for_load_state("domcontentloaded")
+                page.wait_for_timeout(1000)
                 print("Modo de edición activado correctamente.")
         except Exception as e:
             print(f"Aviso al activar Modo de edición: {e}")
@@ -242,8 +244,10 @@ class MoodleService:
         self.take_debug_screenshot(page, f"formulario_completado_curso_{course_id}.png")
 
         # 7. Clic en 'Guardar cambios y regresar al curso'
+        print("Guardando cambios en Moodle...")
         page.click("#id_submitbutton2")
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(2000)
         print(f"✅ Recurso '{nombre}' publicado con éxito en la sección '{categoria}' del curso {course_id}.")
         self.take_debug_screenshot(page, f"curso_{course_id}_publicado.png")
 
@@ -264,7 +268,8 @@ class MoodleService:
         self.fill_tinymce_description(page, mensaje)
 
         page.click("#id_submitbutton")
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(2000)
         print(f"✅ Anuncio '{asunto}' publicado en el foro exitosamente.")
 
     def resolve_target_courses(self, target: Any) -> List[str]:
