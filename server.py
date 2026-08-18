@@ -1,50 +1,60 @@
 import json
 import re
 import uvicorn
+from typing import Callable
 from fastapi import FastAPI, HTTPException, Header, Request, Response
+from fastapi.routing import APIRoute
+
 from app.config import config
 from app.models import LinkedInPayload
 from app.services.ai_service import AIService
 from app.services.moodle_service import MoodleService
 from app.services.ngrok_service import setup_ngrok_tunnel
 
+
+class SanitizedJSONRoute(APIRoute):
+    """
+    Ruta personalizada de FastAPI que intercepta la petición HTTP y parsea
+    el JSON permitiendo saltos de línea crudos sin escapar (strict=False),
+    evitando el error 422 'Invalid control character at' de cURL o Swagger UI.
+    """
+    def get_route_handler(self) -> Callable:
+        original_route_handler = super().get_route_handler()
+
+        async def custom_route_handler(request: Request) -> Response:
+            if request.method in ["POST", "PUT", "PATCH"]:
+                content_type = request.headers.get("content-type", "")
+                if "application/json" in content_type:
+                    try:
+                        body_bytes = await request.body()
+                        if body_bytes:
+                            body_str = body_bytes.decode("utf-8", errors="ignore")
+                            # Parsear usando strict=False para aceptar \n y \t dentro de cadenas de texto
+                            parsed_data = json.loads(body_str, strict=False)
+                            # Serializar de nuevo a JSON estándar con \n escapados correctamente
+                            sanitized_bytes = json.dumps(parsed_data).encode("utf-8")
+
+                            async def receive():
+                                return {"type": "http.request", "body": sanitized_bytes}
+
+                            request = Request(request.scope, receive=receive)
+                    except Exception as e:
+                        print(f"Aviso al sanitizar cuerpo JSON: {e}")
+
+            return await original_route_handler(request)
+
+        return custom_route_handler
+
+
 app = FastAPI(
     title="Agente Moodle SEA Acatlán API",
     description="API Webhook para clasificar publicaciones técnicas y subirlas automáticamente a Moodle con incrustación de publicaciones de LinkedIn (Iframe) y logos oficiales.",
     version="2.0.0",
 )
+app.router.route_class = SanitizedJSONRoute
 
 ai_service = AIService()
 moodle_service = MoodleService()
-
-
-@app.middleware("http")
-async def sanitize_raw_json_middleware(request: Request, call_next):
-    """
-    Middleware para sanitizar cuerpos JSON entrantes que contengan saltos de línea crudos
-    sin escapar (evitando el error 422 'Invalid control character at' en cURL/Swagger).
-    """
-    if request.method in ["POST", "PUT", "PATCH"]:
-        content_type = request.headers.get("content-type", "")
-        if "application/json" in content_type:
-            try:
-                body_bytes = await request.body()
-                if body_bytes:
-                    body_str = body_bytes.decode("utf-8", errors="ignore")
-                    # Si el JSON no puede ser decodificado directamente por tener saltos de línea crudos
-                    try:
-                        json.loads(body_str)
-                    except json.JSONDecodeError:
-                        # Reemplazar saltos de línea crudos dentro de las cadenas por \n escapados
-                        sanitized_body = re.sub(r'[\r\n]+', r'\\n', body_str)
-                        async def receive():
-                            return {"type": "http.request", "body": sanitized_body.encode("utf-8")}
-                        request = Request(request.scope, receive=receive)
-            except Exception as e:
-                print(f"Aviso en middleware de sanitización JSON: {e}")
-
-    response = await call_next(request)
-    return response
 
 
 @app.get("/")
@@ -70,7 +80,7 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
             detail="Las credenciales de Moodle no están configuradas en el archivo .env",
         )
 
-    # Sanitizar placeholder 'string' si proviene de Swagger UI
+    # Sanitizar placeholder 'string' si proviene de Swagger UI o cURL predeterminado
     linkedin_url = payload.linkedin_url
     if linkedin_url and linkedin_url.strip().lower() in ["string", "null", "none", ""]:
         linkedin_url = None
