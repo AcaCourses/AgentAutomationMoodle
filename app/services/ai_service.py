@@ -44,44 +44,74 @@ HF_MODELS_POOL = [
 
 GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
 
-REGLAS DE CLASIFICACIÓN DE CATEGORÍA EN MOODLE:
-1. "Recursos": Si es un CURSO (ej: "Curso Santander English", "Curso de Python", "Aprende...", "Tutorial", "Libro", "Certificación", "Herramienta").
-2. "Eventos": Si es un WEBINAR, conferencia, taller en vivo, showcase con fecha/hora o reunión virtual/presencial.
-3. "Interns & Job Offers": ÚNICAMENTE si es una VACANTE LABORAL DIRECTA / OFERTA DE EMPLEO / CONTRATACIÓN DE PASANTE (ej. "Amazon SDE Intern", "Buscamos Desarrollador Backend").
+REGLAS STRICTAS DE CLASIFICACIÓN EN MOODLE:
+1. "Recursos": CURSOS (gratuitos o de pago), programas de formación/idiomas, certificaciones, tutoriales, libros, repositorios o herramientas de software.
+2. "Eventos": WEBINARS, conferencias, talleres en vivo, showcases con fecha/hora o reuniones presenciales/virtuales.
+3. "Interns & Job Offers": ÚNICAMENTE Y EXCLUSIVAMENTE vacantes de empleo directo, contrataciones o puestos de pasantía laboral (Internship / Job Vacancy).
 
-FEW-SHOT EXAMPLES (EJEMPLOS DE REFERENCIA):
+FEW-SHOT EXAMPLES (6 EJEMPLOS VARIADOS - 2 POR SECCIÓN):
 
-Ejemplo 1 (CURSO / FORMACIÓN -> RECURSOS):
-Texto: "Curso Santander British Council English online 2026 - 10.000 plazas gratis para mejorar tu inglés."
-Respuesta esperada:
+--- SECCIÓN RECURSOS (EJEMPLO 1: CURSO DE IDIOMAS) ---
+Texto de Origen: "Curso Santander British Council English online 2026 - 10.000 plazas gratis para mejorar tu nivel de inglés."
+Respuesta Esperada:
 {
   "empresa_detectada": "Santander",
   "categoria_moodle": "Recursos",
   "nombre": "📚 Curso Gratuito de Inglés Santander British Council 2026",
-  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Programa gratuito de capacitación en idioma inglés ofrecido por British Council y Santander Open Academy.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>El inglés técnico es indispensable para trabajar en empresas multinacionales de tecnología.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Inglés técnico profesional</li><li>Comunicación efectiva</li></ul><h4>📌 Recomendación Académica</h4><p>Aprovecha esta convocatoria gratuita para fortalecer tu CV antes de egresar.</p>"
+  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Programa gratuito de formación en idioma inglés impartido por British Council y Santander Open Academy con 10,000 becas disponibles.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>El inglés técnico y profesional es un requisito fundamental para trabajar en empresas multinacionales de tecnología.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Inglés técnico empresarial</li><li>Comunicación efectiva internacional</li></ul><h4>📌 Recomendación Académica</h4><p>Aprovecha esta oportunidad para elevar tu nivel de inglés antes de egresar.</p>"
 }
 
-Ejemplo 2 (WEBINAR / SHOWCASE -> EVENTOS):
-Texto: "IBM Z Student Ambassador Showcase on September 9. Join us for lightning talks on LinuxONE."
-Respuesta esperada:
+--- SECCIÓN RECURSOS (EJEMPLO 2: TUTORIAL Y CERTIFICACIÓN TÉCNICA) ---
+Texto de Origen: "Aprende FastAPI y Python avanzado para construir microservicios escalables con Docker y PostgreSQL en esta guía completa."
+Respuesta Esperada:
+{
+  "empresa_detectada": "Python",
+  "categoria_moodle": "Recursos",
+  "nombre": "🎓 Guía y Tutorial de FastAPI: Microservicios con Python",
+  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Tutorial práctico para dominar el desarrollo de backend con FastAPI, Docker y bases de datos relacionales.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>FastAPI se ha convertido en el framework estándar para construir microservicios de alto rendimiento e IA en Python.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Desarrollo de REST APIs asíncronas</li><li>Contenedores con Docker</li></ul><h4>📌 Recomendación Académica</h4><p>Implementa este proyecto para fortalecer tu portafolio en GitHub.</p>"
+}
+
+--- SECCIÓN EVENTOS (EJEMPLO 1: WEBINAR / SHOWCASE VIRTUAL) ---
+Texto de Origen: "IBM Z Student Ambassador Showcase on September 9 at 12PM EDT. Join us for live lightning talks on mainframes."
+Respuesta Esperada:
 {
   "empresa_detectada": "IBM",
   "categoria_moodle": "Eventos",
   "nombre": "📅 Showcase Virtual: IBM Z Student Ambassador",
-  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Evento virtual donde embajadores estudiantiles muestran proyectos reales construidos sobre tecnología IBM Z.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>Las instituciones bancarias y financieras globales operan sus sistemas críticos sobre mainframes IBM.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Conocimientos en mainframes e infraestructura empresarial</li></ul><h4>📌 Recomendación Académica</h4><p>Asiste a este evento para conocer cómo otros alumnos colaboran directamente con IBM.</p>"
+  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Showcase virtual interactivo donde embajadores universitarios exponen proyectos reales construidos sobre infraestructura LinuxONE.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>Los sistemas de cómputo de alto rendimiento IBM Z procesan las transacciones bancarias más importantes del mundo.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Arquitecturas empresariales e infraestructura cloud</li></ul><h4>📌 Recomendación Académica</h4><p>Asiste a este webinar en vivo para conectar con otros estudiantes y mentores de IBM.</p>"
 }
 
-Ejemplo 3 (VACANTE LABORAL / CONTRATACIÓN -> INTERNS & JOB OFFERS):
-Texto: "Amazon is hiring Software Development Engineer (SDE) Interns 2026. Qualifications: C++, Java or Python."
-Respuesta esperada:
+--- SECCIÓN EVENTOS (EJEMPLO 2: TALLER O CONFERENCIA EN VIVO) ---
+Texto de Origen: "Taller en vivo de Ciberseguridad e Inteligencia Artificial en el Auditorio de FES Acatlán este Viernes a las 11:00 AM."
+Respuesta Esperada:
+{
+  "empresa_detectada": "FES Acatlán",
+  "categoria_moodle": "Eventos",
+  "nombre": "📅 Taller Presencial de Ciberseguridad e IA en FES Acatlán",
+  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Sesión presencial interactiva sobre detección de vulnerabilidades y defensa asistida por modelos de lenguaje.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>La seguridad informática y la protección de datos son prioridades estratégicas en la industria.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Lógica de seguridad defensiva y hacking ético básico</li></ul><h4>📌 Recomendación Académica</h4><p>No te pierdas esta conferencia presencial en el campus.</p>"
+}
+
+--- SECCIÓN INTERNS & JOB OFFERS (EJEMPLO 1: PASANTÍA TÉCNICA) ---
+Texto de Origen: "Amazon is hiring Software Development Engineer (SDE) Interns 2026. Qualifications: C++, Java or Python, Data Structures."
+Respuesta Esperada:
 {
   "empresa_detectada": "Amazon",
   "categoria_moodle": "Interns & Job Offers",
   "nombre": "💼 Vacante SDE Intern 2026 - Amazon",
-  "descripcion_html": "<h4>💼 Detalles de la Vacante / Convocatoria (Amazon)</h4><p>Oportunidad de pasantía laboral a tiempo completo para estudiantes de computación en Amazon.</p><h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4><ul><li><b>¿Dominas Java, Python o C++?</b> Evalúa tu nivel práctico de programación.</li></ul><h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4><ul><li><b>Paso 1:</b> Repasa estructuras de datos y algoritmos.</li></ul><h4>📌 Recomendación del Profesor</h4><p>Aplica hoy mismo a esta vacante en Amazon.</p>"
+  "descripcion_html": "<h4>💼 Detalles de la Vacante / Convocatoria (Amazon)</h4><p>Oportunidad de pasantía laboral a tiempo completo para estudiantes de computación en Amazon.</p><h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4><ul><li><b>¿Dominas Java, Python o C++?</b> Evalúa tu nivel práctico de programación.</li><li><b>¿Comprendes estructuras de datos clave?</b> Verifica si puedes implementar árboles, listas y grafos.</li></ul><h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4><ul><li><b>Paso 1:</b> Repasa resolución de problemas algorítmicos.</li><li><b>Paso 2:</b> Practica control de versiones con Git.</li></ul><h4>📌 Recomendación del Profesor</h4><p>Aplica a esta vacante para vivir la experiencia de entrevistas de código en vivo.</p>"
 }
 
-Responde ÚNICAMENTE un JSON válido con la estructura del ejemplo.
+--- SECCIÓN INTERNS & JOB OFFERS (EJEMPLO 2: OFERTA DE EMPLEO JUNIOR) ---
+Texto de Origen: "Mercado Libre busca Desarrollador Backend Junior. Requisitos: Conocimientos en Go o Java, bases de datos SQL y REST APIs."
+Respuesta Esperada:
+{
+  "empresa_detectada": "Mercado Libre",
+  "categoria_moodle": "Interns & Job Offers",
+  "nombre": "💼 Puesto Desarrollador Backend Junior - Mercado Libre",
+  "descripcion_html": "<h4>💼 Detalles de la Vacante / Convocatoria (Mercado Libre)</h4><p>Convocatoria de trabajo para incorporarse al equipo de desarrollo backend en la plataforma de e-commerce líder en Latinoamérica.</p><h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4><ul><li><b>¿Has construido APIs REST con Java o Go?</b> Revisa tus proyectos universitarios previos.</li><li><b>¿Sabes diseñar esquemas de bases de datos SQL?</b> Comprueba tu dominio de relaciones y consultas.</li></ul><h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4><ul><li><b>Paso 1:</b> Estudia conceptos de microservicios y arquitectura MVC.</li><li><b>Paso 2:</b> Practica pruebas unitarias e integración continua.</li></ul><h4>📌 Recomendación del Profesor</h4><p>Envía tu CV a esta convocatoria para comenzar tu trayectoria profesional en el sector e-commerce.</p>"
+}
+
+Responde ÚNICAMENTE un JSON válido con la estructura de los ejemplos.
 """
 
 JOB_OFFER_SYSTEM_PROMPT = """Eres un mentor de reclutamiento técnico para estudiantes universitarios de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
@@ -91,14 +121,26 @@ Tu objetivo es analizar una Oferta de Empleo / Pasantía Laboral / Vacante (Job 
 REGLAS DE CLASIFICACIÓN:
 - "categoria_moodle": "Interns & Job Offers"
 
-FEW-SHOT EXAMPLE:
-Texto: "We are hiring Software Development Engineer Interns at Amazon. Requirements: Data structures, C++, Python or Java."
-Respuesta esperada:
+FEW-SHOT EXAMPLES (2 EJEMPLOS VARIADOS DE VACANTES):
+
+--- EJEMPLO 1: PASANTÍA PASANTE DE DESARROLLO (AMAZON) ---
+Texto de Origen: "We are hiring Software Development Engineer Interns at Amazon. Requirements: Data structures, C++, Python or Java."
+Respuesta Esperada:
 {
   "empresa_detectada": "Amazon",
   "categoria_moodle": "Interns & Job Offers",
   "nombre": "💼 Vacante SDE Intern 2026 - Amazon",
   "descripcion_html": "<h4>💼 Detalles de la Vacante / Convocatoria (Amazon)</h4><p>Puesto de pasantía técnica para desarrollo de software en la nube de Amazon.</p><h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4><ul><li><b>¿Dominas lenguajes como Python, Java o C++?</b> Evalúa tus conocimientos en POO.</li><li><b>¿Comprendes estructuras de datos clave?</b> Verifica si puedes implementar listas, árboles y grafos.</li></ul><h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4><ul><li><b>Paso 1 - Algoritmos:</b> Resuelve problemas de complejidad algorítmica.</li><li><b>Paso 2 - Herramientas:</b> Practica con Git, Docker y servicios AWS.</li></ul><h4>📌 Recomendación del Profesor</h4><p>No dudes en enviar tu solicitud a Amazon para ganar valiosa experiencia en entrevistas técnicas.</p>"
+}
+
+--- EJEMPLO 2: EMPLEO FULLSTACK JUNIOR (MERCADO LIBRE / GOOGLE) ---
+Texto de Origen: "Buscamos Ingeniero de Software Fullstack Junior en Google. Requisitos: TypeScript, React, Python, Cloud."
+Respuesta Esperada:
+{
+  "empresa_detectada": "Google",
+  "categoria_moodle": "Interns & Job Offers",
+  "nombre": "💼 Vacante Ingeniero de Software Fullstack Junior - Google",
+  "descripcion_html": "<h4>💼 Detalles de la Vacante / Convocatoria (Google)</h4><p>Oportunidad laboral para incorporarse como ingeniero fullstack junior en Google.</p><h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4><ul><li><b>¿Tienes experiencia construyendo interfaces con React y TypeScript?</b> Evalúa tu fluidez en el frontend.</li><li><b>¿Entiendes cómo consumir APIs REST y bases de datos en el backend?</b> Revisa tus proyectos personales.</li></ul><h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4><ul><li><b>Paso 1:</b> Fortalece conceptos avanzados de JavaScript asíncrono y TypeScript.</li><li><b>Paso 2:</b> Construye un proyecto fullstack desplegado en la nube.</li></ul><h4>📌 Recomendación del Profesor</h4><p>Prepara tu CV enfocado en logros medibles y aplica a esta vacante en Google.</p>"
 }
 
 Responde ÚNICAMENTE un JSON válido con esa estructura exacta.
@@ -322,7 +364,6 @@ class AIService:
         texto_lower = texto.lower()
         empresa_name = logo_info.get("nombre_empresa", "Empresa Tecnológica")
 
-        # Criterio estricto de clasificación en fallback local
         is_course = any(w in texto_lower for w in ["curso", "course", "aprender", "aprender inglés", "idiomas", "beca de estudio", "tutorial", "capacitación"])
         is_event = any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "showcase", "hackathon"])
         is_job = any(w in texto_lower for w in ["we are hiring", "job description", "vacante", "empleo", "contratando", "job offer", "sde intern", "puesto de trabajo"]) and not is_course
@@ -375,7 +416,7 @@ class AIService:
         self, texto: str, url: str, empresa_input: Optional[str] = None, linkedin_url: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Jerarquía de Ejecución con Few-Shot Prompts y Criterio Estricto:
+        Jerarquía de Ejecución con 6 Few-Shot Prompts (2 por sección):
         1. 🥇 Google AI Studio Gemini API (gemini-1.5-flash / gemini-1.5-pro / gemini-2.0-flash-exp)
         2. 🥈 Hugging Face Pool (Qwen 72B / Llama 70B / Qwen Coder 32B / Mistral Nemo)
         3. 🥉 Motor Sintético Local
