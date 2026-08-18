@@ -36,11 +36,12 @@ def login_and_save_session(page, context):
 def publicar_recurso_url(page, item):
     """Crea una actividad de tipo URL en el curso de Moodle 4.x."""
     seccion = item.get("seccion", 0)
-    print(f"Publicando URL: '{item['nombre']}'...")
+    course_id = item.get("course_id", COURSE_ID)
+    print(f"Publicando URL en curso {course_id}: '{item['nombre']}'...")
 
     # URL directa de Moodle para agregar módulo tipo URL
     url_crear = (
-        f"{BASE_URL}/course/modedit.php?add=url&type=&course={COURSE_ID}&section={seccion}&return=0"
+        f"{BASE_URL}/course/modedit.php?add=url&type=&course={course_id}&section={seccion}&return=0"
     )
     page.goto(url_crear)
     page.wait_for_load_state("domcontentloaded")

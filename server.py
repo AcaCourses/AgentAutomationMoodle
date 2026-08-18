@@ -73,6 +73,7 @@ class LinkedInPayload(BaseModel):
     texto: str
     url: str
     seccion: Optional[int] = 0
+    course_id: Optional[str] = None
 
 @app.get("/")
 def read_root():
@@ -92,6 +93,7 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
     # 1. Transformación con Hugging Face
     datos = procesar_post_ia(payload.texto, payload.url)
     seccion = payload.seccion or datos.get("seccion", 0)
+    target_course_id = payload.course_id or COURSE_ID
 
     # 2. Publicación directa en Moodle con Playwright
     try:
@@ -117,7 +119,7 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
                 context.storage_state(path=SESSION_FILE)
 
             # Crear Recurso URL en Moodle 4.x
-            url_crear = f"{BASE_URL}/course/modedit.php?add=url&type=&course={COURSE_ID}&section={seccion}&return=0"
+            url_crear = f"{BASE_URL}/course/modedit.php?add=url&type=&course={target_course_id}&section={seccion}&return=0"
             page.goto(url_crear)
             page.wait_for_load_state("domcontentloaded")
             
