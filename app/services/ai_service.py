@@ -96,7 +96,7 @@ class AIService:
 
     def parse_linkedin_iframe(self, linkedin_url: Optional[str]) -> Optional[str]:
         """Transforma una URL de publicación de LinkedIn en un iframe incrustado oficial."""
-        if not linkedin_url:
+        if not linkedin_url or linkedin_url.strip().lower() in ["string", "null", "none", ""]:
             return None
 
         if "<iframe" in linkedin_url.lower():
