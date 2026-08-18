@@ -8,7 +8,6 @@ from huggingface_hub import InferenceClient
 from ddgs import DDGS
 from app.config import config
 
-# Mapas de dominios conocidos para logos corporativos HD
 KNOWN_DOMAINS = {
     "ibm": "ibm.com",
     "santander": "santander.com",
@@ -69,8 +68,39 @@ class AIService:
     def __init__(self):
         self.hf_token = config.HF_TOKEN
 
+    def parse_linkedin_iframe(self, linkedin_url: Optional[str]) -> Optional[str]:
+        """Transforma una URL de publicación de LinkedIn en un iframe incrustado oficial."""
+        if not linkedin_url:
+            return None
+
+        # Si ya se envió una etiqueta <iframe> directamente
+        if "<iframe" in linkedin_url.lower():
+            match = re.search(r'src=["\']([^"\']+)["\']', linkedin_url)
+            if match:
+                src = match.group(1)
+                return (
+                    f'<div style="text-align: center; margin-bottom: 20px; display: flex; justify-content: center;">'
+                    f'  <iframe src="{src}" height="550" width="100%" style="max-width: 504px; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08);" frameborder="0" allowfullscreen="" title="Publicación integrada de LinkedIn"></iframe>'
+                    f'</div>'
+                )
+            return linkedin_url
+
+        # Extraer URN ID de URLs de LinkedIn (actividad o share)
+        urn_match = re.search(r'(urn:li:(?:activity|share):\d+)', linkedin_url)
+        if urn_match:
+            urn = urn_match.group(1)
+            embed_src = f"https://www.linkedin.com/embed/feed/update/{urn}?collapsed=1"
+            print(f"🔗 LinkedIn URN detectado: '{urn}' -> iframe embed generado.")
+            return (
+                f'<div style="text-align: center; margin-bottom: 20px; display: flex; justify-content: center;">'
+                f'  <iframe src="{embed_src}" height="550" width="100%" style="max-width: 504px; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08);" frameborder="0" allowfullscreen="" title="Publicación integrada de LinkedIn"></iframe>'
+                f'</div>'
+            )
+
+        return None
+
     def fetch_image_as_base64(self, url: str) -> Optional[str]:
-        """Descarga una imagen de internet y la convierte a una Data URI en Base64 garantizada para Moodle."""
+        """Descarga una imagen de internet y la convierte a Data URI en Base64."""
         try:
             with httpx.Client(timeout=5.0, follow_redirects=True) as client:
                 res = client.get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -79,11 +109,11 @@ class AIService:
                     b64_str = base64.b64encode(res.content).decode("utf-8")
                     return f"data:{content_type};base64,{b64_str}"
         except Exception as e:
-            print(f"Aviso al descargar logo para Base64 ({url}): {e}")
+            print(f"Aviso al descargar logo Base64 ({url}): {e}")
         return None
 
     def generate_svg_logo_base64(self, empresa_name: str) -> str:
-        """Genera un badge en formato SVG Base64 de alta definición si no se puede descargar el logo externo."""
+        """Genera un badge en formato SVG Base64."""
         clean_name = empresa_name.upper()[:25]
         svg_code = (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="240" height="60" viewBox="0 0 240 60">'
@@ -95,10 +125,7 @@ class AIService:
         return f"data:image/svg+xml;base64,{b64_str}"
 
     def resolve_company_logo(self, empresa_input: Optional[str], url: str, texto: str) -> Dict[str, str]:
-        """
-        Resuelve deterministamente el logo oficial de la empresa y lo convierte a Base64
-        para evitar bloqueos de seguridad XSS/CORS en Moodle.
-        """
+        """Resuelve el logo de la empresa y lo convierte a Base64."""
         target_name = (empresa_input or "").strip()
         domain = ""
 
@@ -128,7 +155,6 @@ class AIService:
             target_name = "Empresa Tecnológica"
             domain = "linkedin.com"
 
-        # Intentar obtener Base64 desde dominios oficiales
         print(f"🏢 Empresa identificada: '{target_name}' (Dominio: {domain})")
         logo_urls_to_try = [
             f"https://logo.clearbit.com/{domain}",
@@ -139,32 +165,41 @@ class AIService:
         for img_url in logo_urls_to_try:
             base64_logo = self.fetch_image_as_base64(img_url)
             if base64_logo:
-                print(f"✅ Logo convertido a Base64 Data URI exitosamente.")
                 break
 
         if not base64_logo:
-            print("💡 Generando SVG Base64 emblemático de la empresa...")
             base64_logo = self.generate_svg_logo_base64(target_name)
 
         return {"nombre_empresa": target_name, "domain": domain, "base64_logo": base64_logo}
 
-    def attach_logo_header_to_html(self, html_content: str, logo_info: Dict[str, str]) -> str:
-        """Incrustar la tarjeta con el logo oficial en Base64 al inicio de la descripción HTML."""
+    def attach_header_to_html(
+        self, html_content: str, logo_info: Dict[str, str], linkedin_url: Optional[str] = None
+    ) -> str:
+        """
+        Si existe linkedin_url, inyecta el iframe de la publicación de LinkedIn.
+        Si no existe, inyecta la tarjeta con el logo de la empresa en Base64.
+        """
+        iframe_header = self.parse_linkedin_iframe(linkedin_url)
+        if iframe_header:
+            print("📌 Encabezado: Publicación de LinkedIn incrustada (Iframe).")
+            return iframe_header + html_content
+
         base64_logo = logo_info.get("base64_logo")
         empresa_name = logo_info.get("nombre_empresa", "Empresa")
 
-        if not base64_logo:
-            return html_content
+        if base64_logo:
+            print(f"📌 Encabezado: Tarjeta de logo oficial de {empresa_name}.")
+            logo_card = (
+                f'<div style="text-align: center; padding: 16px; margin-bottom: 20px; background: #ffffff; '
+                f'border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">'
+                f'  <img src="{base64_logo}" alt="Logo oficial {empresa_name}" '
+                f'       style="max-height: 80px; max-width: 240px; object-fit: contain; display: inline-block; margin: 0 auto;" />'
+                f'  <div style="font-size: 13px; color: #64748b; margin-top: 8px; font-weight: 600;">Contenido Oficial & Convocatoria de {empresa_name}</div>'
+                f'</div>'
+            )
+            return logo_card + html_content
 
-        header_card = (
-            f'<div style="text-align: center; padding: 16px; margin-bottom: 20px; background: #ffffff; '
-            f'border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">'
-            f'  <img src="{base64_logo}" alt="Logo oficial {empresa_name}" '
-            f'       style="max-height: 80px; max-width: 240px; object-fit: contain; display: inline-block; margin: 0 auto;" />'
-            f'  <div style="font-size: 13px; color: #64748b; margin-top: 8px; font-weight: 600;">Contenido Oficial & Convocatoria de {empresa_name}</div>'
-            f'</div>'
-        )
-        return header_card + html_content
+        return html_content
 
     def perform_web_research(self, topic: str, empresa: str) -> List[Dict[str, str]]:
         """Realiza una búsqueda web concisa en tiempo real para obtener datos del mercado laboral."""
@@ -185,9 +220,9 @@ class AIService:
         return results
 
     def _fallback_categorize_and_enrich(
-        self, texto: str, url: str, research_data: List[Dict[str, str]], logo_info: Dict[str, str]
+        self, texto: str, url: str, research_data: List[Dict[str, str]], logo_info: Dict[str, str], linkedin_url: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Motor de enriquecimiento sintético local utilizando el logo corporativo Base64."""
+        """Motor de enriquecimiento sintético local."""
         texto_lower = texto.lower()
         empresa_name = logo_info.get("nombre_empresa", "Empresa Tecnológica")
 
@@ -227,14 +262,14 @@ class AIService:
             f"<ul>"
             f"  <li><b>Competitividad Internacional:</b> Formación respaldada por la industria global.</li>"
             f"  <li><b>Perfil de Alto Valor:</b> Diferenciador clave para postulaciones laborales en {empresa_name} y tecnológicas.</li>"
-            f"  <li><b>Acceso Oficial:</b> <a href='{url}' target='_blank'>Enlace a la convocatoria de {empresa_name}</a>.</li>"
+            f"  <li><b>Registro / Acceso Oficial:</b> <a href='{url}' target='_blank'>Haz clic aquí para ingresar al registro directo</a>.</li>"
             f"</ul>"
             f"<h4>📌 Recomendación del Profesor</h4>"
             f"<p>Este contenido de {empresa_name} ha sido seleccionado para complementar tu preparación académica en FES Acatlán. "
             f"Aprovechar estas convocatorias durante tu etapa universitaria potenciará tu perfil laboral al egresar.</p>"
         )
 
-        final_html = self.attach_logo_header_to_html(base_html, logo_info)
+        final_html = self.attach_header_to_html(base_html, logo_info, linkedin_url)
 
         return {
             "categoria_moodle": categoria,
@@ -244,24 +279,23 @@ class AIService:
             "empresa": empresa_name,
         }
 
-    def adapt_linkedin_post(self, texto: str, url: str, empresa_input: Optional[str] = None) -> Dict[str, Any]:
-        """Transforma un post técnico en un recurso universitario enriquecido con IA, logo de empresa en Base64 e investigación web."""
-        # 1. Resolver el logo de la empresa e inyectarlo en formato Base64 Data URI
+    def adapt_linkedin_post(
+        self, texto: str, url: str, empresa_input: Optional[str] = None, linkedin_url: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Transforma un post técnico en un recurso universitario enriquecido con IA, iframe/logo e investigación web."""
         logo_info = self.resolve_company_logo(empresa_input, url, texto)
         empresa_name = logo_info["nombre_empresa"]
 
-        # 2. Investigación web enfocada en la empresa y el contenido
         research = self.perform_web_research(texto[:60], empresa_name)
         research_str = "\n".join([f"- {r['title']}: {r['snippet']}" for r in research])
 
         if not self.hf_token:
-            print("HF_TOKEN no configurado. Utilizando motor sintético con logo corporativo oficial en Base64.")
-            return self._fallback_categorize_and_enrich(texto, url, research, logo_info)
+            print("HF_TOKEN no configurado. Utilizando motor sintético.")
+            return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url)
 
-        # 3. Probar pool de modelos de pesos abiertos en Hugging Face
         user_prompt = (
             f"Empresa Responsable: {empresa_name}\n"
-            f"Publicación de origen:\n\"\"\"{texto}\"\"\"\nEnlace: {url}\n\n"
+            f"Publicación de origen:\n\"\"\"{texto}\"\"\"\nEnlace de Registro: {url}\n\n"
             f"Datos de Investigación Web sobre {empresa_name} y Mercado:\n{research_str}"
         )
 
@@ -284,15 +318,14 @@ class AIService:
                 if "categoria_moodle" not in data:
                     data["categoria_moodle"] = "Recursos"
 
-                # Inyectar la tarjeta con el logo Base64 al inicio del HTML retornado por la IA
-                data["descripcion_html"] = self.attach_logo_header_to_html(
-                    data.get("descripcion_html", ""), logo_info
+                # Inyectar iframe de LinkedIn (o logo de la empresa si no hay iframe)
+                data["descripcion_html"] = self.attach_header_to_html(
+                    data.get("descripcion_html", ""), logo_info, linkedin_url
                 )
                 data["empresa"] = empresa_name
-                print(f"✅ Enriquecimiento y logo Base64 de {empresa_name} integrados exitosamente con modelo '{model_name}'.")
+                print(f"✅ Enriquecimiento e incrustación de encabezado integrados exitosamente con modelo '{model_name}'.")
                 return data
             except Exception as e:
                 print(f"Aviso con modelo '{model_name}': {e}. Probando siguiente modelo...")
 
-        # Fallback si los modelos HF están saturados
-        return self._fallback_categorize_and_enrich(texto, url, research, logo_info)
+        return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url)
