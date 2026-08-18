@@ -14,10 +14,10 @@ class LinkedInPayload(BaseModel):
         json_schema_extra={"example": "https://www.linkedin.com/posts/ejemplo-rag-123"}
     )
     seccion: Optional[int] = Field(default=0, description="Índice numérico de la sección en Moodle")
-    course_id: Optional[Union[str, List[str]]] = Field(
+    course_id: Optional[Union[int, str, List[Union[int, str]]]] = Field(
         default=None,
-        description="ID del curso (ej. '22841', '22842' o dejar nulo para publicar en ambos)",
-        json_schema_extra={"example": "22842"}
+        description="ID del curso (ej. 22841, '22842' o dejar nulo para publicar en ambos)",
+        json_schema_extra={"example": 22842}
     )
 
 
