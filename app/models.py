@@ -3,12 +3,21 @@ from pydantic import BaseModel, Field
 
 
 class LinkedInPayload(BaseModel):
-    texto: str = Field(..., description="Contenido original del post de LinkedIn")
-    url: str = Field(..., description="Enlace del post original")
+    texto: str = Field(
+        ...,
+        description="Contenido original del post de LinkedIn",
+        json_schema_extra={"example": "Un excelente resumen de cómo implementar RAG con bases de datos vectoriales y embeddings multimodales para mejorar la precisión de los modelos."}
+    )
+    url: str = Field(
+        ...,
+        description="Enlace del post original",
+        json_schema_extra={"example": "https://www.linkedin.com/posts/ejemplo-rag-123"}
+    )
     seccion: Optional[int] = Field(default=0, description="Índice numérico de la sección en Moodle")
     course_id: Optional[Union[str, List[str]]] = Field(
         default=None,
-        description="ID del curso (ej. '22841') o lista de cursos (ej. ['22841', '22842'])"
+        description="ID del curso (ej. '22841', '22842' o dejar nulo para publicar en ambos)",
+        json_schema_extra={"example": "22842"}
     )
 
 

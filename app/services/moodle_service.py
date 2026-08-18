@@ -163,13 +163,19 @@ class MoodleService:
         print(f"✅ Anuncio '{asunto}' publicado en el foro exitosamente.")
 
     def resolve_target_courses(self, target: Any) -> List[str]:
-        """Resuelve uno o múltiples IDs de cursos."""
-        if not target:
+        """Resuelve uno o múltiples IDs de cursos descartando valores nulos o texto por defecto como 'string'."""
+        if not target or target == "string" or target == ["string"]:
             return self.default_courses
         if isinstance(target, list):
-            return [str(c) for c in target]
-        if isinstance(target, str) and "," in target:
-            return [c.strip() for c in target.split(",") if c.strip()]
+            valid = [str(c).strip() for c in target if str(c).strip() and str(c).strip() != "string"]
+            return valid if valid else self.default_courses
+        if isinstance(target, str):
+            if target.strip() == "string" or not target.strip():
+                return self.default_courses
+            if "," in target:
+                valid = [c.strip() for c in target.split(",") if c.strip() and c.strip() != "string"]
+                return valid if valid else self.default_courses
+            return [target.strip()]
         return [str(target)]
 
     def launch_browser_safely(self, p):
