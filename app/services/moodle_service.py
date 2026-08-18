@@ -74,27 +74,24 @@ class MoodleService:
 
         self.take_debug_screenshot(page, f"curso_{course_id}_pestanas.png")
 
-        # 2. Buscar la pestaña/sección correspondiente en la interfaz (ej. "Recursos", "Eventos", "Interns & Job Offers")
+        # 2. Buscar la pestaña/sección correspondiente en la interfaz
         section_index = 0
         section_found = False
 
         print(f"Buscando la sección '{categoria_nombre}' en las pestañas del curso...")
 
-        # Intentar localizar por enlaces de navegación de sección
         target_tab = page.locator('.nav-tabs a, .nav-link, ul.sections a, div.sectionname a, a[role="tab"]').filter(has_text=categoria_nombre)
 
         if target_tab.count() > 0:
             href = target_tab.first.get_attribute("href") or ""
             print(f"Pestaña encontrada '{categoria_nombre}' con enlace: {href}")
             
-            # Extraer número de sección del href si existe (ej. section=4 o section-4)
             match = re.search(r'section[=\-]?(\d+)', href)
             if match:
                 section_index = int(match.group(1))
                 section_found = True
                 print(f"Índice de sección detectado: {section_index}")
 
-            # Hacer clic en la pestaña para seleccionarla
             try:
                 target_tab.first.click()
                 page.wait_for_load_state("domcontentloaded")
@@ -102,7 +99,6 @@ class MoodleService:
                 pass
 
         if not section_found:
-            # Búsqueda alternativa por texto en la página
             print(f"Buscando sección '{categoria_nombre}' por selectores secundarios...")
             all_tabs = page.locator('.nav-link, a[role="tab"]').all()
             for idx, tab in enumerate(all_tabs):
@@ -119,6 +115,69 @@ class MoodleService:
                     break
 
         return section_index
+
+    def fill_tinymce_description(self, page: Page, html_content: str) -> None:
+        """
+        Espera a que el editor TinyMCE / Atto de Moodle cargue completamente e inyecta
+        el contenido HTML de forma garantizada vía la API JS de TinyMCE e Iframe.
+        """
+        print("Esperando la inicialización del editor de Descripción (TinyMCE / Atto)...")
+        page.wait_for_timeout(1500) # Pausa estratégica para permitir la carga del editor JS
+
+        try:
+            # 1. Inyección directa utilizando la API global de TinyMCE
+            success = page.evaluate("""
+                (content) => {
+                    let set = false;
+                    try {
+                        if (window.tinyMCE && window.tinyMCE.get('id_introeditor')) {
+                            window.tinyMCE.get('id_introeditor').setContent(content);
+                            set = true;
+                        } else if (window.tinymce && window.tinymce.get('id_introeditor')) {
+                            window.tinymce.get('id_introeditor').setContent(content);
+                            set = true;
+                        } else if (window.tinyMCE && window.tinyMCE.activeEditor) {
+                            window.tinyMCE.activeEditor.setContent(content);
+                            set = true;
+                        }
+                    } catch(e) {}
+
+                    if (!set) {
+                        const el = document.querySelector('#id_introeditor_editable, [contenteditable="true"]');
+                        if (el) {
+                            el.innerHTML = content;
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            set = true;
+                        }
+                    }
+
+                    // Sincronizar campo textarea oculto si existe
+                    const textarea = document.querySelector('#id_introeditor');
+                    if (textarea) {
+                        textarea.value = content;
+                    }
+
+                    return set;
+                }
+            """, html_content)
+
+            if success:
+                print("✅ Descripción inyectada correctamente vía API TinyMCE/DOM.")
+            else:
+                # 2. Fallback si TinyMCE se renderiza dentro de un iframe
+                iframe = page.frame_locator('iframe[id*="id_introeditor"], iframe[id*="tinymce"]')
+                if iframe.count() > 0:
+                    iframe.locator('body').fill(html_content)
+                    print("✅ Descripción inyectada dentro del Iframe de TinyMCE.")
+                else:
+                    editor_editable = page.locator('#id_introeditor_editable, [contenteditable="true"]')
+                    if editor_editable.count() > 0:
+                        editor_editable.first.fill(html_content)
+                        print("✅ Descripción inyectada vía contenedor contenteditable.")
+
+        except Exception as e:
+            print(f"Aviso al inyectar en TinyMCE: {e}")
 
     def publish_url_resource(
         self, page: Page, item: Dict[str, Any], course_id: str
@@ -139,7 +198,7 @@ class MoodleService:
 
         print(f"Publicando recurso URL en Curso {course_id} | Sección '{categoria}' (id: {section_index})...")
 
-        # 2. Navegar directamente al formulario de creación 'Nueva URL' para dicha sección
+        # 2. Navegar al formulario de creación 'Nueva URL'
         url_crear = (
             f"{self.base_url}/course/modedit.php?"
             f"add=url&type=&course={course_id}&section={section_index}&return=0"
@@ -167,17 +226,9 @@ class MoodleService:
         page.fill("#id_externalurl", url)
         print(f"Campo URL externa completado: '{url}'")
 
-        # 5. Llenar Descripción enriquecida por IA
+        # 5. Llenar Descripción enriquecida esperando a TinyMCE
         if descripcion_html:
-            print("Insertando descripción enriquecida en HTML por IA...")
-            editor = page.locator('[contenteditable="true"], #id_introeditor_editable')
-            if editor.count() > 0:
-                editor.first.fill(descripcion_html)
-            else:
-                try:
-                    page.fill("#id_introeditor", descripcion_html)
-                except Exception:
-                    pass
+            self.fill_tinymce_description(page, descripcion_html)
 
         # 6. Marcar casilla 'Mostrar descripción en la página del curso'
         try:
@@ -210,11 +261,7 @@ class MoodleService:
 
         page.fill("#id_subject", asunto)
 
-        editor = page.locator('[contenteditable="true"]')
-        if editor.count() > 0:
-            editor.first.fill(mensaje)
-        else:
-            page.fill("#id_message", mensaje)
+        self.fill_tinymce_description(page, mensaje)
 
         page.click("#id_submitbutton")
         page.wait_for_load_state("networkidle")
