@@ -1,0 +1,16 @@
+[
+  {
+    "tipo": "recurso_url",
+    "nombre": "Novedades de IA en la Industria (LinkedIn)",
+    "url": "https://www.linkedin.com/posts/ejemplo-post-ia",
+    "seccion": 0,
+    "publicado": false
+  },
+  {
+    "tipo": "anuncio_foro",
+    "forum_id": 5678,
+    "asunto": "Recurso complementario de la semana",
+    "mensaje": "<p>Estimados alumnos, les comparto el siguiente artículo de interés analizado recientemente.</p>",
+    "publicado": false
+  }
+]
