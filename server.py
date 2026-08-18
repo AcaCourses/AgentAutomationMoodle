@@ -118,15 +118,19 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
     datos_ia = ai_service.adapt_linkedin_post(
         payload.texto, payload.url, payload.empresa, linkedin_url, cb=log_cb
     )
-    log_cb(f"✅ Análisis IA completado: '{datos_ia.get('nombre')}' ({datos_ia.get('categoria_moodle')})", "success")
+    categoria_det = datos_ia.get("categoria_moodle", "Recursos")
+    log_cb(f"✅ Análisis IA completado: '{datos_ia.get('nombre')}' ({categoria_det})", "success")
+
+    tipo_item = "tarea_assign" if categoria_det == "Tareas" else "recurso_url"
 
     item_recurso = {
-        "tipo": "recurso_url",
+        "tipo": tipo_item,
         "nombre": datos_ia.get("nombre", "Recurso Destacado"),
-        "categoria_moodle": datos_ia.get("categoria_moodle", "Recursos"),
+        "categoria_moodle": categoria_det,
         "descripcion_html": datos_ia.get("descripcion_html", ""),
         "url": payload.url,
         "seccion": payload.seccion if payload.seccion != 0 else None,
+        "dias_entrega": 15,
     }
 
     try:
@@ -135,7 +139,7 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
             "status": "ok",
             "publicado": datos_ia.get("nombre"),
             "empresa": datos_ia.get("empresa"),
-            "categoria_moodle": datos_ia.get("categoria_moodle"),
+            "categoria_moodle": categoria_det,
             "cursos_afectados": cursos_publicados,
             "datos_ia": datos_ia,
             "logs": logs,
@@ -178,16 +182,21 @@ async def webhook_linkedin_stream(payload: LinkedInPayload, x_token: str = Heade
             datos_ia = ai_service.adapt_linkedin_post(
                 payload.texto, payload.url, payload.empresa, linkedin_url, cb=send_log
             )
-            send_log(f"🧠 Clasificado como: '{datos_ia.get('nombre')}' | Categoría: '{datos_ia.get('categoria_moodle')}'", "success")
+            categoria_det = datos_ia.get("categoria_moodle", "Recursos")
+            send_log(f"🧠 Clasificado como: '{datos_ia.get('nombre')}' | Categoría: '{categoria_det}'", "success")
+
+            tipo_item = "tarea_assign" if categoria_det == "Tareas" else "recurso_url"
 
             item_recurso = {
-                "tipo": "recurso_url",
+                "tipo": tipo_item,
                 "nombre": datos_ia.get("nombre", "Recurso Destacado"),
-                "categoria_moodle": datos_ia.get("categoria_moodle", "Recursos"),
+                "categoria_moodle": categoria_det,
                 "descripcion_html": datos_ia.get("descripcion_html", ""),
                 "url": payload.url,
                 "seccion": payload.seccion if payload.seccion != 0 else None,
+                "dias_entrega": 15,
             }
+
 
             cursos_publicados = moodle_service.publish_item(item_recurso, course_id=target_course_id, log_cb=send_log)
 

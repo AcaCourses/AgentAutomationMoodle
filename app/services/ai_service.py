@@ -26,6 +26,7 @@ KNOWN_DOMAINS = {
     "nvidia": "nvidia.com",
     "intel": "intel.com",
     "github": "github.com",
+    "canva": "canva.com",
 }
 
 GEMINI_MODELS_POOL = [
@@ -48,8 +49,29 @@ REGLAS STRICTAS DE CLASIFICACIÓN EN MOODLE:
 1. "Recursos": CURSOS (gratuitos o de pago), programas de formación/idiomas, certificaciones, tutoriales, libros, repositorios o herramientas de software.
 2. "Eventos": WEBINARS, conferencias, talleres en vivo, showcases con fecha/hora o reuniones presenciales/virtuales.
 3. "Interns & Job Offers": ÚNICAMENTE Y EXCLUSIVAMENTE vacantes de empleo directo, contrataciones o puestos de pasantía laboral (Internship / Job Vacancy).
+4. "Tareas": ASIGNACIONES DE CLASE, entregas de trabajos, ejercicios dejados por el profesor, plantillas de Canva (ej. https://canva.link/...) o tareas con fecha límite.
 
-FEW-SHOT EXAMPLES (6 EJEMPLOS VARIADOS - 2 POR SECCIÓN):
+FEW-SHOT EXAMPLES (8 EJEMPLOS VARIADOS - 2 POR SECCIÓN):
+
+--- SECCIÓN TAREAS (EJEMPLO 1: PLANTILLA CANVA / ENTREGABLE) ---
+Texto de Origen: "CV for stem https://canva.link/0yg17mek4a9umqq"
+Respuesta Esperada:
+{
+  "empresa_detectada": "Canva",
+  "categoria_moodle": "Tareas",
+  "nombre": "📝 Tarea: Elaboración de CV para áreas STEM",
+  "descripcion_html": "<h4>📝 Instrucciones de la Tarea</h4><p>Diseña tu Curriculum Vitae enfocado en áreas STEM utilizando la plantilla oficial en Canva.</p><h4>🔗 Enlace a la Plantilla de Canva</h4><p><a href=\"https://canva.link/0yg17mek4a9umqq\" target=\"_blank\">🎨 Ver Plantilla en Canva</a></p><h4>⏰ Entrega Límite</h4><p>Disponibilidad máxima de 15 días a partir de la fecha de publicación.</p>"
+}
+
+--- SECCIÓN TAREAS (EJEMPLO 2: TAREA O PROYECTO DEL PROFESOR) ---
+Texto de Origen: "Tarea de Laboratorio: Implementación de Estructuras de Datos y Algoritmos en C++ https://canva.link/x4iex4y764964sm"
+Respuesta Esperada:
+{
+  "empresa_detectada": "Canva",
+  "categoria_moodle": "Tareas",
+  "nombre": "📝 Tarea: Laboratorio de Estructuras de Datos en C++",
+  "descripcion_html": "<h4>📝 Instrucciones de la Tarea</h4><p>Revisa la plantilla del proyecto y entrega el código documentado con las pruebas correspondientes.</p><h4>🔗 Enlace a la Plantilla / Recursos</h4><p><a href=\"https://canva.link/x4iex4y764964sm\" target=\"_blank\">🎨 Abrir Recursos de la Tarea en Canva</a></p><h4>⏰ Entrega Límite</h4><p>Disponibilidad máxima de 15 días a partir de hoy.</p>"
+}
 
 --- SECCIÓN RECURSOS (EJEMPLO 1: CURSO DE IDIOMAS) ---
 Texto de Origen: "Curso Santander British Council English online 2026 - 10.000 plazas gratis para mejorar tu nivel de inglés."
@@ -379,11 +401,32 @@ class AIService:
         texto_lower = texto.lower()
         empresa_name = logo_info.get("nombre_empresa", "Empresa Tecnológica")
 
+        is_canva_or_task = (
+            "canva.link" in url.lower()
+            or "canva.com" in url.lower()
+            or "canva.link" in texto_lower
+            or any(w in texto_lower for w in ["tarea", "entregable", "actividad", "practica", "práctica", "laboratorio", "cv for stem"])
+        )
         is_course = any(w in texto_lower for w in ["curso", "course", "aprender", "aprender inglés", "idiomas", "beca de estudio", "tutorial", "capacitación"])
         is_event = any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "showcase", "hackathon"])
         is_job = any(w in texto_lower for w in ["we are hiring", "job description", "vacante", "empleo", "contratando", "job offer", "sde intern", "puesto de trabajo"]) and not is_course
 
-        if is_job:
+        if is_canva_or_task:
+            categoria = "Tareas"
+            lineas = [l.strip() for l in texto.split("\n") if l.strip()]
+            titulo_clean = lineas[0] if lineas else "Tarea de Canva"
+            if "http" in titulo_clean:
+                titulo_clean = re.sub(r'https?://\S+', '', titulo_clean).strip()
+            if not titulo_clean:
+                titulo_clean = "Actividad / Tarea de Canva"
+            nombre = f"📝 Tarea: {titulo_clean}"
+            base_html = (
+                f"<h4>📝 Instrucciones de la Tarea</h4><p>{texto}</p>"
+                f"<h4>🔗 Enlace a la Plantilla / Recursos Oficiales</h4>"
+                f'<p><a href="{url}" target="_blank" style="display: inline-block; padding: 10px 18px; background-color: #7d2ae8; color: white; border-radius: 8px; font-weight: bold; text-decoration: none;">🎨 Abrir Recursos en Canva</a></p>'
+                f"<h4>⏰ Disponibilidad y Entrega</h4><p>Esta tarea estará disponible durante un plazo máximo de 15 días a partir de su publicación.</p>"
+            )
+        elif is_job:
             categoria = "Interns & Job Offers"
             nombre = f"💼 {empresa_name}: Vacante Laboral"
             base_html = (
@@ -431,9 +474,9 @@ class AIService:
         self, texto: str, url: str, empresa_input: Optional[str] = None, linkedin_url: Optional[str] = None, cb: Optional[Callable[[str, str], None]] = None
     ) -> Dict[str, Any]:
         """
-        Jerarquía de Ejecución con 6 Few-Shot Prompts (2 por sección):
-        1. 🥇 Google AI Studio Gemini API (gemini-1.5-flash / gemini-1.5-pro / gemini-2.0-flash-exp)
-        2. 🥈 Hugging Face Pool (Qwen 72B / Llama 70B / Qwen Coder 32B / Mistral Nemo)
+        Jerarquía de Ejecución optimizada (Priorizando Hugging Face por solicitud del usuario):
+        1. 🥇 Hugging Face Pool (Qwen 72B / Llama 70B / Qwen Coder 32B / Mistral Nemo)
+        2. 🥈 Google AI Studio Gemini API (gemini-1.5-flash / gemini-1.5-pro / gemini-2.0-flash-exp)
         3. 🥉 Motor Sintético Local
         """
         logo_info = self.resolve_company_logo(empresa_input, url, texto, cb=cb)
@@ -443,45 +486,38 @@ class AIService:
         research_str = "\n".join([f"- {r['title']}: {r['snippet']}" for r in research])
 
         texto_lower = texto.lower()
+        is_task = (
+            "canva.link" in url.lower()
+            or "canva.com" in url.lower()
+            or "canva.link" in texto_lower
+            or any(w in texto_lower for w in ["tarea", "entregable", "actividad", "cv for stem"])
+        )
         is_course = any(w in texto_lower for w in ["curso", "course", "aprender", "aprender inglés", "idiomas", "beca de estudio", "tutorial", "capacitación"])
         is_job_post = (
             any(w in texto_lower for w in [
                 "we are hiring", "job description", "vacante de empleo",
                 "oferta de empleo", "hiring software", "job vacancy",
                 "sde intern", "puesto de trabajo", "postúlate a la vacante"
-            ]) and not is_course
+            ]) and not is_course and not is_task
         )
 
         active_system_prompt = JOB_OFFER_SYSTEM_PROMPT if is_job_post else GENERAL_SYSTEM_PROMPT
-        if is_job_post:
+        if is_task:
+            self._log("📝 Detectada Asignación / Tarea de Canva. Clasificando para sección Tareas con limite de 15 días.", "info", cb)
+        elif is_job_post:
             self._log("💼 Detectada Oferta de Empleo / Job Post. Utilizando Prompt Especializado de Autoevaluación y Roadmap.", "info", cb)
 
         user_prompt = (
-            f"Empresa Convocante: {empresa_name}\n"
-            f"Publicación de origen:\n\"\"\"{texto}\"\"\"\nEnlace de Registro / Postulación: {url}\n\n"
+            f"Empresa Convocante / Plataforma: {empresa_name}\n"
+            f"Publicación de origen:\n\"\"\"{texto}\"\"\"\nEnlace de Registro / Destino: {url}\n\n"
             f"Datos de Investigación Web sobre {empresa_name} y Mercado:\n{research_str}"
         )
 
-        # 1. 🥇 PRIORIDAD 1: Google AI Studio Gemini API
-        gemini_res = self.call_gemini_api(active_system_prompt, user_prompt, cb=cb)
-        if gemini_res:
-            gemini_res["url"] = url
-            if is_job_post:
-                gemini_res["categoria_moodle"] = "Interns & Job Offers"
-            elif is_course and gemini_res.get("categoria_moodle") == "Interns & Job Offers":
-                gemini_res["categoria_moodle"] = "Recursos"
-
-            gemini_res["descripcion_html"] = self.attach_header_to_html(
-                gemini_res.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
-            )
-            gemini_res["empresa"] = empresa_name
-            return gemini_res
-
-        # 2. 🥈 PRIORIDAD 2: Hugging Face Inference API
+        # 1. 🥇 PRIORIDAD 1: Hugging Face Inference API (Preferencia del Usuario)
         if self.hf_token and self.hf_token != "hf_tu_token_aqui":
             for model_name in HF_MODELS_POOL:
                 try:
-                    self._log(f"🤖 Solicitando enriquecimiento a Hugging Face: '{model_name}'...", "info", cb)
+                    self._log(f"🤗 [Hugging Face] Clasificando y enriqueciendo con modelo: '{model_name}'...", "info", cb)
                     client = InferenceClient(model=model_name, token=self.hf_token)
                     messages = [
                         {"role": "system", "content": active_system_prompt},
@@ -507,20 +543,38 @@ class AIService:
                         data = json.loads(cleaned_raw, strict=False)
 
                     data["url"] = url
-                    if is_job_post:
+                    if is_task:
+                        data["categoria_moodle"] = "Tareas"
+                    elif is_job_post:
                         data["categoria_moodle"] = "Interns & Job Offers"
-                    elif is_course and data.get("categoria_moodle") == "Interns & Job Offers":
-                        data["categoria_moodle"] = "Recursos"
 
                     data["descripcion_html"] = self.attach_header_to_html(
                         data.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
                     )
                     data["empresa"] = empresa_name
-                    self._log(f"✅ Enriquecimiento exitoso con modelo Hugging Face '{model_name}'.", "success", cb)
+                    self._log(f"✅ [Hugging Face] Enriquecimiento exitoso con '{model_name}' (Categoría: {data.get('categoria_moodle')}).", "success", cb)
                     return data
                 except Exception as e:
-                    self._log(f"Aviso con modelo HF '{model_name}': {e}. Probando siguiente...", "warn", cb)
+                    self._log(f"Aviso con modelo Hugging Face '{model_name}': {e}. Intentando siguiente...", "warn", cb)
 
-        # 3. 🥉 PRIORIDAD 3: Motor Sintético Local
+        # 2. 🥈 PRIORIDAD 2: Google AI Studio Gemini API
+        gemini_res = self.call_gemini_api(active_system_prompt, user_prompt, cb=cb)
+        if gemini_res:
+            gemini_res["url"] = url
+            if is_task:
+                gemini_res["categoria_moodle"] = "Tareas"
+            elif is_job_post:
+                gemini_res["categoria_moodle"] = "Interns & Job Offers"
+            elif is_course and gemini_res.get("categoria_moodle") == "Interns & Job Offers":
+                gemini_res["categoria_moodle"] = "Recursos"
+
+            gemini_res["descripcion_html"] = self.attach_header_to_html(
+                gemini_res.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
+            )
+            gemini_res["empresa"] = empresa_name
+            return gemini_res
+
+        # 3. 🥉 PRIORIDAD 3: Motor Sintético Local de Respaldo
         self._log("💡 Utilizando Motor Sintético Local de Respaldo.", "info", cb)
         return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url, cb=cb)
+

@@ -1,10 +1,12 @@
 import os
 import sys
 import re
+import datetime
 import subprocess
 from typing import Dict, Any, List, Union, Optional, Callable
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 from app.config import config
+
 
 
 class MoodleService:
@@ -261,6 +263,142 @@ class MoodleService:
         print(f"✅ Recurso '{nombre}' publicado con éxito en la sección '{categoria}' del curso {course_id}.")
         self.take_debug_screenshot(page, f"curso_{course_id}_publicado.png")
 
+    def set_moodle_date_fields(self, page: Page, prefix: str, target_dt: datetime.datetime) -> None:
+        """
+        Configura los campos de fecha y hora en el formulario de Moodle para Disponibilidad.
+        prefix: 'allowsubmissionsfromdate', 'duedate', 'gradingduedate'
+        """
+        SPANISH_MONTHS = {
+            1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+            5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+            9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+        }
+
+        try:
+            chk = page.locator(f"#id_{prefix}_enabled")
+            if chk.count() > 0 and not chk.is_checked():
+                chk.check()
+                print(f"Casilla de habilitación de fecha '{prefix}' marcada.")
+
+            day_str = str(target_dt.day)
+            day_select = page.locator(f"#id_{prefix}_day")
+            if day_select.count() > 0:
+                try:
+                    day_select.select_option(value=day_str)
+                except Exception:
+                    day_select.select_option(label=day_str)
+
+            month_val = str(target_dt.month)
+            month_label = SPANISH_MONTHS.get(target_dt.month, "")
+            month_select = page.locator(f"#id_{prefix}_month")
+            if month_select.count() > 0:
+                try:
+                    month_select.select_option(value=month_val)
+                except Exception:
+                    try:
+                        month_select.select_option(label=month_label)
+                    except Exception:
+                        pass
+
+            year_str = str(target_dt.year)
+            year_select = page.locator(f"#id_{prefix}_year")
+            if year_select.count() > 0:
+                try:
+                    year_select.select_option(value=year_str)
+                except Exception:
+                    year_select.select_option(label=year_str)
+
+            hour_str = f"{target_dt.hour:02d}"
+            hour_select = page.locator(f"#id_{prefix}_hour")
+            if hour_select.count() > 0:
+                try:
+                    hour_select.select_option(value=str(target_dt.hour))
+                except Exception:
+                    hour_select.select_option(label=hour_str)
+
+            minute_str = f"{(target_dt.minute // 5) * 5:02d}"
+            minute_select = page.locator(f"#id_{prefix}_minute")
+            if minute_select.count() > 0:
+                try:
+                    minute_select.select_option(value=str((target_dt.minute // 5) * 5))
+                except Exception:
+                    try:
+                        minute_select.select_option(value=str(target_dt.minute))
+                    except Exception:
+                        minute_select.select_option(label=minute_str)
+
+            print(f"📅 Fecha '{prefix}' configurada: {target_dt.strftime('%d/%m/%Y %H:%M')}")
+        except Exception as e:
+            print(f"Aviso al configurar campos de fecha '{prefix}': {e}")
+
+    def publish_assignment(
+        self, page: Page, item: Dict[str, Any], course_id: str
+    ) -> None:
+        """
+        Crea un módulo de Tarea (assign) en la sección correspondiente del curso en Moodle.
+        Configura Disponibilidad con 15 días límite a partir de hoy.
+        """
+        categoria = item.get("categoria_moodle") or "Tareas"
+        nombre = item.get("nombre") or item.get("titulo", "Nueva Tarea")
+        descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
+        dias_entrega = item.get("dias_entrega", 15)
+
+        section_index = item.get("seccion") if "seccion" in item and item["seccion"] != 0 else None
+        if section_index is None:
+            section_index = self.navigate_and_find_section(page, course_id, categoria)
+
+        print(f"Publicando Tarea (assign) en Curso {course_id} | Sección '{categoria}' (id: {section_index})...")
+
+        url_crear = (
+            f"{self.base_url}/course/modedit.php?"
+            f"add=assign&type=&course={course_id}&section={section_index}&return=0"
+        )
+        page.goto(url_crear)
+        page.wait_for_load_state("domcontentloaded")
+
+        if "login" in page.url:
+            self.take_debug_screenshot(page, "error_sesion_expirada.png")
+            raise ValueError("Moodle redirigió a login. Comprueba las credenciales en .env")
+
+        try:
+            page.wait_for_selector("#id_name", timeout=12000)
+            page.fill("#id_name", nombre)
+            print(f"Campo Nombre de Tarea completado: '{nombre}'")
+        except Exception as e:
+            screenshot_path = self.take_debug_screenshot(page, f"error_nombre_tarea_curso_{course_id}.png")
+            raise TimeoutError(
+                f"No se encontró el campo '#id_name' en Moodle Tarea (Página actual: '{page.title()}'). "
+                f"Captura guardada en: {screenshot_path}"
+            )
+
+        if descripcion_html:
+            self.fill_tinymce_description(page, descripcion_html)
+
+        try:
+            show_desc = page.locator("#id_showdescription")
+            if show_desc.count() > 0 and not show_desc.is_checked():
+                show_desc.check()
+                print("Casilla 'Mostrar descripción en la página del curso' activada.")
+        except Exception as e:
+            print(f"Aviso al activar casilla descripción: {e}")
+
+        now = datetime.datetime.now()
+        due_date = now + datetime.timedelta(days=dias_entrega)
+        grading_date = now + datetime.timedelta(days=dias_entrega + 5)
+
+        self.set_moodle_date_fields(page, "allowsubmissionsfromdate", now)
+        self.set_moodle_date_fields(page, "duedate", due_date)
+        self.set_moodle_date_fields(page, "gradingduedate", grading_date)
+
+        self.take_debug_screenshot(page, f"formulario_tarea_completado_curso_{course_id}.png")
+
+        print("Guardando cambios de la Tarea en Moodle...")
+        page.click("#id_submitbutton2")
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(2000)
+        print(f"✅ Tarea '{nombre}' creada con éxito con entrega a {dias_entrega} días en la sección '{categoria}' del curso {course_id}.")
+        self.take_debug_screenshot(page, f"curso_{course_id}_tarea_publicada.png")
+
     def publish_forum_announcement(
         self, page: Page, item: Dict[str, Any]
     ) -> None:
@@ -334,10 +472,16 @@ class MoodleService:
                 self._log("✅ Autenticación completada.", "success", log_cb)
 
                 tipo = item.get("tipo", "recurso_url")
+                categoria = item.get("categoria_moodle") or item.get("categoria", "")
+                if categoria == "Tareas" or tipo == "tarea_assign":
+                    tipo = "tarea_assign"
 
                 for cid in courses:
                     self._log(f"📌 Procesando Curso ID: {cid}", "info", log_cb)
-                    if tipo == "recurso_url":
+                    if tipo == "tarea_assign":
+                        self.publish_assignment(page, item, course_id=cid)
+                        published_courses.append(cid)
+                    elif tipo == "recurso_url":
                         self.publish_url_resource(page, item, course_id=cid)
                         published_courses.append(cid)
                     elif tipo == "anuncio_foro":
@@ -346,7 +490,6 @@ class MoodleService:
                     else:
                         raise ValueError(f"Tipo de recurso desconocido: {tipo}")
 
-                # Limpieza automática si todo terminó exitosamente
                 if os.path.exists("debug"):
                     import shutil
                     shutil.rmtree("debug", ignore_errors=True)
@@ -363,3 +506,4 @@ class MoodleService:
                 browser.close()
 
         return published_courses
+

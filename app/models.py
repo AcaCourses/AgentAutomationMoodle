@@ -32,7 +32,7 @@ class LinkedInPayload(BaseModel):
 
 
 class RecursoItem(BaseModel):
-    tipo: Literal["recurso_url", "anuncio_foro"] = "recurso_url"
+    tipo: Literal["recurso_url", "anuncio_foro", "tarea_assign"] = "recurso_url"
     course_id: Optional[Union[str, int, List[Union[str, int]]]] = None
     empresa: Optional[str] = None
     linkedin_url: Optional[str] = None
@@ -40,6 +40,10 @@ class RecursoItem(BaseModel):
     asunto: Optional[str] = None
     url: Optional[str] = None
     mensaje: Optional[str] = None
+    descripcion_html: Optional[str] = None
+    categoria_moodle: Optional[str] = None
     forum_id: Optional[int] = None
     seccion: int = 0
+    dias_entrega: int = 15
     publicado: bool = False
+
