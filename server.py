@@ -8,7 +8,7 @@ from app.services.ngrok_service import setup_ngrok_tunnel
 
 app = FastAPI(
     title="Agente Moodle SEA Acatlán API",
-    description="API Webhook para transformar publicaciones técnicas y subirlas automáticamente a Moodle.",
+    description="API Webhook para clasificar publicaciones técnicas y subirlas automáticamente a Moodle.",
     version="2.0.0",
 )
 
@@ -39,26 +39,27 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
             detail="Las credenciales de Moodle no están configuradas en el archivo .env",
         )
 
-    # 1. Transformación inteligente con Hugging Face (Qwen2.5-72B)
+    # 1. Clasificación inteligente y enriquecimiento con IA
     datos_ia = ai_service.adapt_linkedin_post(payload.texto, payload.url)
-    seccion = payload.seccion or datos_ia.get("seccion", 0)
     target_course_id = payload.course_id or config.COURSE_IDS
 
     item_recurso = {
         "tipo": "recurso_url",
-        "nombre": datos_ia.get("titulo", "Recurso LinkedIn"),
+        "nombre": datos_ia.get("nombre", "Recurso Destacado"),
+        "categoria_moodle": datos_ia.get("categoria_moodle", "Recursos"),
+        "descripcion_html": datos_ia.get("descripcion_html", ""),
         "url": payload.url,
-        "seccion": seccion,
+        "seccion": payload.seccion if payload.seccion != 0 else None,
     }
 
-    # 2. Publicación directa en Moodle con Playwright (secuencial en uno o varios cursos)
+    # 2. Publicación directa en Moodle con Playwright en la sección seleccionada
     try:
         cursos_publicados = moodle_service.publish_item(item_recurso, course_id=target_course_id)
         return {
             "status": "ok",
-            "publicado": datos_ia.get("titulo"),
+            "publicado": datos_ia.get("nombre"),
+            "categoria_moodle": datos_ia.get("categoria_moodle"),
             "cursos_afectados": cursos_publicados,
-            "seccion": seccion,
             "datos_ia": datos_ia,
         }
     except Exception as e:

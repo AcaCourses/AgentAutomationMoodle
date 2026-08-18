@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import subprocess
 from typing import Dict, Any, List, Union
 from playwright.sync_api import sync_playwright, Page, BrowserContext
@@ -15,7 +16,7 @@ class MoodleService:
         self.session_file = config.SESSION_FILE
 
     def take_debug_screenshot(self, page: Page, name: str = "debug_screenshot.png") -> str:
-        """Captura una captura de pantalla del estado actual de la página para depuración."""
+        """Captura una captura de pantalla del estado actual para depuración."""
         try:
             os.makedirs("debug", exist_ok=True)
             path = os.path.join("debug", name)
@@ -27,7 +28,7 @@ class MoodleService:
             return ""
 
     def login_and_save_session(self, page: Page, context: BrowserContext) -> None:
-        """Autentica al usuario en Moodle SEA Acatlán y guarda el estado en session.json."""
+        """Autentica al usuario en Moodle SEA Acatlán y guarda la sesión."""
         print(f"Iniciando sesión en SEA Acatlán ({self.base_url}/login/index.php)...")
         page.goto(f"{self.base_url}/login/index.php")
 
@@ -51,69 +52,124 @@ class MoodleService:
         if "login" in page.url:
             self.login_and_save_session(page, context)
 
-    def publish_url_resource(
-        self, page: Page, item: Dict[str, Any], course_id: str
-    ) -> None:
+    def navigate_and_find_section(self, page: Page, course_id: str, categoria_nombre: str) -> int:
         """
-        Crea un módulo de recurso URL en la pestaña Recursos y sección del curso especificado.
+        Navega al curso, activa 'Modo de edición', busca la pestaña/sección coincidente
+        (ej. 'Recursos', 'Eventos', 'Interns & Job Offers') y retorna el índice de la sección.
         """
-        seccion = item.get("seccion", 0)
-        nombre = item.get("nombre") or item.get("titulo", "Nuevo Recurso URL")
-        url = item.get("url")
-        descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
-
-        print(f"Navegando al Curso {course_id} (URL: {self.base_url}/course/view.php?id={course_id})...")
+        print(f"Navegando a la vista principal del Curso {course_id}...")
         page.goto(f"{self.base_url}/course/view.php?id={course_id}")
         page.wait_for_load_state("domcontentloaded")
-        self.take_debug_screenshot(page, f"curso_{course_id}_inicio.png")
 
-        # 1. Intentar activar 'Modo de edición' si la palanca está presente
+        # 1. Activar 'Modo de edición' si no está activo
         try:
             edit_switch = page.locator('input[name="setmode"], .editmode-switch input')
             if edit_switch.count() > 0 and not edit_switch.first.is_checked():
                 print("Activando 'Modo de edición'...")
                 edit_switch.first.click()
                 page.wait_for_load_state("networkidle")
-                self.take_debug_screenshot(page, f"curso_{course_id}_modo_edicion.png")
+                print("Modo de edición activado correctamente.")
         except Exception as e:
-            print(f"Aviso Modo de edición: {e}")
+            print(f"Aviso al activar Modo de edición: {e}")
 
-        # 2. Navegar al formulario de creación 'Nueva URL' para la sección indicada
-        print(f"Publicando URL en Curso {course_id} (Sección {seccion}): '{nombre}'...")
+        self.take_debug_screenshot(page, f"curso_{course_id}_pestanas.png")
+
+        # 2. Buscar la pestaña/sección correspondiente en la interfaz (ej. "Recursos", "Eventos", "Interns & Job Offers")
+        section_index = 0
+        section_found = False
+
+        print(f"Buscando la sección '{categoria_nombre}' en las pestañas del curso...")
+
+        # Intentar localizar por enlaces de navegación de sección
+        target_tab = page.locator('.nav-tabs a, .nav-link, ul.sections a, div.sectionname a, a[role="tab"]').filter(has_text=categoria_nombre)
+
+        if target_tab.count() > 0:
+            href = target_tab.first.get_attribute("href") or ""
+            print(f"Pestaña encontrada '{categoria_nombre}' con enlace: {href}")
+            
+            # Extraer número de sección del href si existe (ej. section=4 o section-4)
+            match = re.search(r'section[=\-]?(\d+)', href)
+            if match:
+                section_index = int(match.group(1))
+                section_found = True
+                print(f"Índice de sección detectado: {section_index}")
+
+            # Hacer clic en la pestaña para seleccionarla
+            try:
+                target_tab.first.click()
+                page.wait_for_load_state("domcontentloaded")
+            except Exception:
+                pass
+
+        if not section_found:
+            # Búsqueda alternativa por texto en la página
+            print(f"Buscando sección '{categoria_nombre}' por selectores secundarios...")
+            all_tabs = page.locator('.nav-link, a[role="tab"]').all()
+            for idx, tab in enumerate(all_tabs):
+                txt = tab.inner_text().strip()
+                if categoria_nombre.lower() in txt.lower():
+                    section_index = idx
+                    section_found = True
+                    print(f"Sección '{txt}' identificada en la posición {idx}.")
+                    try:
+                        tab.click()
+                        page.wait_for_load_state("domcontentloaded")
+                    except Exception:
+                        pass
+                    break
+
+        return section_index
+
+    def publish_url_resource(
+        self, page: Page, item: Dict[str, Any], course_id: str
+    ) -> None:
+        """
+        Crea un módulo de recurso URL en la sección correspondiente (Recursos, Eventos, Interns & Job Offers).
+        Rellena: Nombre, URL externa, Descripción enriquecida en HTML por IA y marca 'Mostrar descripción'.
+        """
+        categoria = item.get("categoria_moodle") or item.get("categoria") or "Recursos"
+        nombre = item.get("nombre") or item.get("titulo", "Nuevo Recurso URL")
+        url = item.get("url")
+        descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
+
+        # 1. Encontrar la sección correspondiente en el curso
+        section_index = item.get("seccion") if "seccion" in item and item["seccion"] != 0 else None
+        if section_index is None:
+            section_index = self.navigate_and_find_section(page, course_id, categoria)
+
+        print(f"Publicando recurso URL en Curso {course_id} | Sección '{categoria}' (id: {section_index})...")
+
+        # 2. Navegar directamente al formulario de creación 'Nueva URL' para dicha sección
         url_crear = (
             f"{self.base_url}/course/modedit.php?"
-            f"add=url&type=&course={course_id}&section={seccion}&return=0"
+            f"add=url&type=&course={course_id}&section={section_index}&return=0"
         )
         page.goto(url_crear)
         page.wait_for_load_state("domcontentloaded")
-        print(f"URL actual del navegador: {page.url} | Título: '{page.title()}'")
 
-        # Verificar si Moodle redirigió a login o página de error
         if "login" in page.url:
             self.take_debug_screenshot(page, "error_sesion_expirada.png")
-            raise ValueError("Moodle redirigió a la página de login. La sesión no está autenticada.")
+            raise ValueError("Moodle redirigió a login. Comprueba las credenciales en .env")
 
-        # Tomar captura antes de llenar formulario
-        self.take_debug_screenshot(page, f"formulario_url_curso_{course_id}.png")
-
-        # 3. Llenar Nombre (Esperar a que el selector esté listo)
+        # 3. Llenar Nombre
         try:
-            page.wait_for_selector("#id_name", timeout=10000)
+            page.wait_for_selector("#id_name", timeout=12000)
             page.fill("#id_name", nombre)
+            print(f"Campo Nombre completado: '{nombre}'")
         except Exception as e:
-            screenshot_path = self.take_debug_screenshot(page, f"error_campo_nombre_curso_{course_id}.png")
+            screenshot_path = self.take_debug_screenshot(page, f"error_nombre_curso_{course_id}.png")
             raise TimeoutError(
-                f"No se encontró el campo '#id_name' en Moodle. "
-                f"URL actual: {page.url} | Título: {page.title()} | "
-                f"Captura de pantalla guardada en: {screenshot_path}"
+                f"No se encontró el campo '#id_name' en Moodle (Página actual: '{page.title()}'). "
+                f"Captura guardada en: {screenshot_path}"
             )
 
         # 4. Llenar URL externa
         page.fill("#id_externalurl", url)
+        print(f"Campo URL externa completado: '{url}'")
 
-        # 5. Llenar Descripción enriquecida por la IA
+        # 5. Llenar Descripción enriquecida por IA
         if descripcion_html:
-            print("Insertando descripción enriquecida por IA...")
+            print("Insertando descripción enriquecida en HTML por IA...")
             editor = page.locator('[contenteditable="true"], #id_introeditor_editable')
             if editor.count() > 0:
                 editor.first.fill(descripcion_html)
@@ -132,10 +188,12 @@ class MoodleService:
         except Exception as e:
             print(f"Aviso al activar casilla descripción: {e}")
 
+        self.take_debug_screenshot(page, f"formulario_completado_curso_{course_id}.png")
+
         # 7. Clic en 'Guardar cambios y regresar al curso'
         page.click("#id_submitbutton2")
         page.wait_for_load_state("networkidle")
-        print(f"✅ Recurso '{nombre}' publicado con éxito en el curso {course_id}.")
+        print(f"✅ Recurso '{nombre}' publicado con éxito en la sección '{categoria}' del curso {course_id}.")
         self.take_debug_screenshot(page, f"curso_{course_id}_publicado.png")
 
     def publish_forum_announcement(
@@ -163,7 +221,7 @@ class MoodleService:
         print(f"✅ Anuncio '{asunto}' publicado en el foro exitosamente.")
 
     def resolve_target_courses(self, target: Any) -> List[str]:
-        """Resuelve uno o múltiples IDs de cursos descartando valores nulos o texto por defecto como 'string'."""
+        """Resuelve uno o múltiples IDs de cursos descartando 'string' o valores nulos."""
         if not target or target == "string" or target == ["string"]:
             return self.default_courses
         if isinstance(target, list):
@@ -179,12 +237,12 @@ class MoodleService:
         return [str(target)]
 
     def launch_browser_safely(self, p):
-        """Intenta lanzar el navegador Chromium. Si falta en Codespaces/Linux, lo instala automáticamente."""
+        """Intenta lanzar Chromium. Si falta en Codespaces, lo instala automáticamente."""
         try:
             return p.chromium.launch(headless=True)
         except Exception as e:
             if "Executable doesn't exist" in str(e) or "playwright install" in str(e):
-                print("Binarios de Chromium no encontrados. Instalando automáticamente en el entorno...")
+                print("Binarios de Chromium no encontrados. Instalando automáticamente...")
                 subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
                 return p.chromium.launch(headless=True)
             raise e
