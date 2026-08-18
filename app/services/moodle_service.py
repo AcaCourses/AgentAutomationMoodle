@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 from typing import Dict, Any, List, Union
-from playwright.sync_api import sync_playwright, Page, BrowserContext, Error as PlaywrightError
+from playwright.sync_api import sync_playwright, Page, BrowserContext
 from app.config import config
 
 
@@ -14,9 +14,21 @@ class MoodleService:
         self.default_courses = config.COURSE_IDS
         self.session_file = config.SESSION_FILE
 
+    def take_debug_screenshot(self, page: Page, name: str = "debug_screenshot.png") -> str:
+        """Captura una captura de pantalla del estado actual de la página para depuración."""
+        try:
+            os.makedirs("debug", exist_ok=True)
+            path = os.path.join("debug", name)
+            page.screenshot(path=path, full_page=True)
+            print(f"📸 Captura de pantalla guardada en: {os.path.abspath(path)}")
+            return path
+        except Exception as e:
+            print(f"No se pudo guardar la captura de pantalla: {e}")
+            return ""
+
     def login_and_save_session(self, page: Page, context: BrowserContext) -> None:
         """Autentica al usuario en Moodle SEA Acatlán y guarda el estado en session.json."""
-        print("Iniciando sesión en SEA Acatlán...")
+        print(f"Iniciando sesión en SEA Acatlán ({self.base_url}/login/index.php)...")
         page.goto(f"{self.base_url}/login/index.php")
 
         page.fill("#username", self.username)
@@ -25,14 +37,17 @@ class MoodleService:
         page.wait_for_load_state("networkidle")
 
         if "login" in page.url:
-            raise ValueError("Credenciales inválidas o error de inicio de sesión en Moodle.")
+            self.take_debug_screenshot(page, "error_login.png")
+            raise ValueError("Credenciales inválidas o error de inicio de sesión en Moodle. Revisa tu .env")
 
         context.storage_state(path=self.session_file)
-        print("Sesión guardada exitosamente.")
+        print("Sesión guardada exitosamente en session.json.")
 
     def ensure_authenticated(self, page: Page, context: BrowserContext) -> None:
         """Verifica si la sesión actual es válida o ejecuta el login si expiró."""
+        print("Verificando sesión existente...")
         page.goto(f"{self.base_url}/my/")
+        page.wait_for_load_state("domcontentloaded")
         if "login" in page.url:
             self.login_and_save_session(page, context)
 
@@ -41,30 +56,29 @@ class MoodleService:
     ) -> None:
         """
         Crea un módulo de recurso URL en la pestaña Recursos y sección del curso especificado.
-        Rellena los campos: Nombre, URL externa, Descripción enriquecida por la IA y
-        marca la casilla 'Mostrar descripción en la página del curso'.
         """
         seccion = item.get("seccion", 0)
         nombre = item.get("nombre") or item.get("titulo", "Nuevo Recurso URL")
         url = item.get("url")
         descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
 
-        print(f"Navegando al Curso {course_id}...")
-        # 1. Ir a la vista principal del curso para asegurar contexto
+        print(f"Navegando al Curso {course_id} (URL: {self.base_url}/course/view.php?id={course_id})...")
         page.goto(f"{self.base_url}/course/view.php?id={course_id}")
         page.wait_for_load_state("domcontentloaded")
+        self.take_debug_screenshot(page, f"curso_{course_id}_inicio.png")
 
-        # 2. Intentar activar 'Modo de edición' si la palanca está presente
+        # 1. Intentar activar 'Modo de edición' si la palanca está presente
         try:
             edit_switch = page.locator('input[name="setmode"], .editmode-switch input')
             if edit_switch.count() > 0 and not edit_switch.first.is_checked():
                 print("Activando 'Modo de edición'...")
                 edit_switch.first.click()
                 page.wait_for_load_state("networkidle")
+                self.take_debug_screenshot(page, f"curso_{course_id}_modo_edicion.png")
         except Exception as e:
-            print(f"Modo de edición aviso: {e}")
+            print(f"Aviso Modo de edición: {e}")
 
-        # 3. Navegar al formulario de creación 'Nueva URL' para la sección indicada
+        # 2. Navegar al formulario de creación 'Nueva URL' para la sección indicada
         print(f"Publicando URL en Curso {course_id} (Sección {seccion}): '{nombre}'...")
         url_crear = (
             f"{self.base_url}/course/modedit.php?"
@@ -72,14 +86,32 @@ class MoodleService:
         )
         page.goto(url_crear)
         page.wait_for_load_state("domcontentloaded")
+        print(f"URL actual del navegador: {page.url} | Título: '{page.title()}'")
 
-        # 4. Llenar Nombre
-        page.fill("#id_name", nombre)
+        # Verificar si Moodle redirigió a login o página de error
+        if "login" in page.url:
+            self.take_debug_screenshot(page, "error_sesion_expirada.png")
+            raise ValueError("Moodle redirigió a la página de login. La sesión no está autenticada.")
 
-        # 5. Llenar URL externa
+        # Tomar captura antes de llenar formulario
+        self.take_debug_screenshot(page, f"formulario_url_curso_{course_id}.png")
+
+        # 3. Llenar Nombre (Esperar a que el selector esté listo)
+        try:
+            page.wait_for_selector("#id_name", timeout=10000)
+            page.fill("#id_name", nombre)
+        except Exception as e:
+            screenshot_path = self.take_debug_screenshot(page, f"error_campo_nombre_curso_{course_id}.png")
+            raise TimeoutError(
+                f"No se encontró el campo '#id_name' en Moodle. "
+                f"URL actual: {page.url} | Título: {page.title()} | "
+                f"Captura de pantalla guardada en: {screenshot_path}"
+            )
+
+        # 4. Llenar URL externa
         page.fill("#id_externalurl", url)
 
-        # 6. Llenar Descripción enriquecida por la IA (soporta TinyMCE / Atto rich editor)
+        # 5. Llenar Descripción enriquecida por la IA
         if descripcion_html:
             print("Insertando descripción enriquecida por IA...")
             editor = page.locator('[contenteditable="true"], #id_introeditor_editable')
@@ -91,7 +123,7 @@ class MoodleService:
                 except Exception:
                     pass
 
-        # 7. Marcar casilla 'Mostrar descripción en la página del curso' si está disponible
+        # 6. Marcar casilla 'Mostrar descripción en la página del curso'
         try:
             show_desc = page.locator("#id_showdescription")
             if show_desc.count() > 0 and not show_desc.is_checked():
@@ -100,10 +132,11 @@ class MoodleService:
         except Exception as e:
             print(f"Aviso al activar casilla descripción: {e}")
 
-        # 8. Clic en 'Guardar cambios y regresar al curso'
+        # 7. Clic en 'Guardar cambios y regresar al curso'
         page.click("#id_submitbutton2")
         page.wait_for_load_state("networkidle")
         print(f"✅ Recurso '{nombre}' publicado con éxito en el curso {course_id}.")
+        self.take_debug_screenshot(page, f"curso_{course_id}_publicado.png")
 
     def publish_forum_announcement(
         self, page: Page, item: Dict[str, Any]
@@ -166,20 +199,28 @@ class MoodleService:
                 context = browser.new_context()
 
             page = context.new_page()
-            self.ensure_authenticated(page, context)
 
-            tipo = item.get("tipo", "recurso_url")
+            try:
+                self.ensure_authenticated(page, context)
 
-            for cid in courses:
-                if tipo == "recurso_url":
-                    self.publish_url_resource(page, item, course_id=cid)
-                    published_courses.append(cid)
-                elif tipo == "anuncio_foro":
-                    self.publish_forum_announcement(page, item)
-                    published_courses.append(cid)
-                else:
-                    raise ValueError(f"Tipo de recurso desconocido: {tipo}")
+                tipo = item.get("tipo", "recurso_url")
 
-            browser.close()
+                for cid in courses:
+                    if tipo == "recurso_url":
+                        self.publish_url_resource(page, item, course_id=cid)
+                        published_courses.append(cid)
+                    elif tipo == "anuncio_foro":
+                        self.publish_forum_announcement(page, item)
+                        published_courses.append(cid)
+                    else:
+                        raise ValueError(f"Tipo de recurso desconocido: {tipo}")
+
+            except Exception as e:
+                screenshot_path = self.take_debug_screenshot(page, "error_ejecucion_general.png")
+                print(f"❌ Error en la ejecución: {e}")
+                print(f"📸 Revisa la captura en: {os.path.abspath(screenshot_path)}")
+                raise e
+            finally:
+                browser.close()
 
         return published_courses
