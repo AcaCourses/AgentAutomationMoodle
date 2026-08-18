@@ -38,13 +38,33 @@ class MoodleService:
     def publish_url_resource(
         self, page: Page, item: Dict[str, Any], course_id: str
     ) -> None:
-        """Crea un módulo de recurso URL en la sección y curso especificados."""
+        """
+        Crea un módulo de recurso URL en la pestaña Recursos y sección del curso especificado.
+        Rena los campos: Nombre, URL externa, Descripción enriquecida por la IA y
+        marca la casilla 'Mostrar descripción en la página del curso'.
+        """
         seccion = item.get("seccion", 0)
         nombre = item.get("nombre") or item.get("titulo", "Nuevo Recurso URL")
         url = item.get("url")
+        descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
 
+        print(f"Navegando al Curso {course_id}...")
+        # 1. Ir a la vista principal del curso para asegurar contexto
+        page.goto(f"{self.base_url}/course/view.php?id={course_id}")
+        page.wait_for_load_state("domcontentloaded")
+
+        # 2. Intentar activar 'Modo de edición' si la palanca está presente
+        try:
+            edit_switch = page.locator('input[name="setmode"], .editmode-switch input')
+            if edit_switch.count() > 0 and not edit_switch.first.is_checked():
+                print("Activando 'Modo de edición'...")
+                edit_switch.first.click()
+                page.wait_for_load_state("networkidle")
+        except Exception as e:
+            print(f"Modo de edición aviso: {e}")
+
+        # 3. Navegar al formulario de creación 'Nueva URL' para la sección indicada
         print(f"Publicando URL en Curso {course_id} (Sección {seccion}): '{nombre}'...")
-
         url_crear = (
             f"{self.base_url}/course/modedit.php?"
             f"add=url&type=&course={course_id}&section={seccion}&return=0"
@@ -52,12 +72,37 @@ class MoodleService:
         page.goto(url_crear)
         page.wait_for_load_state("domcontentloaded")
 
+        # 4. Llenar Nombre
         page.fill("#id_name", nombre)
+
+        # 5. Llenar URL externa
         page.fill("#id_externalurl", url)
 
+        # 6. Llenar Descripción enriquecida por la IA (soporta TinyMCE / Atto rich editor)
+        if descripcion_html:
+            print("Insertando descripción enriquecida por IA...")
+            editor = page.locator('[contenteditable="true"], #id_introeditor_editable')
+            if editor.count() > 0:
+                editor.first.fill(descripcion_html)
+            else:
+                try:
+                    page.fill("#id_introeditor", descripcion_html)
+                except Exception:
+                    pass
+
+        # 7. Marcar casilla 'Mostrar descripción en la página del curso' si está disponible
+        try:
+            show_desc = page.locator("#id_showdescription")
+            if show_desc.count() > 0 and not show_desc.is_checked():
+                show_desc.check()
+                print("Casilla 'Mostrar descripción en la página del curso' activada.")
+        except Exception as e:
+            print(f"Aviso al activar casilla descripción: {e}")
+
+        # 8. Clic en 'Guardar cambios y regresar al curso'
         page.click("#id_submitbutton2")
         page.wait_for_load_state("networkidle")
-        print(f"Recurso '{nombre}' publicado en curso {course_id} exitosamente.")
+        print(f"✅ Recurso '{nombre}' publicado con éxito en el curso {course_id}.")
 
     def publish_forum_announcement(
         self, page: Page, item: Dict[str, Any]
@@ -81,7 +126,7 @@ class MoodleService:
 
         page.click("#id_submitbutton")
         page.wait_for_load_state("networkidle")
-        print(f"Anuncio '{asunto}' publicado en el foro exitosamente.")
+        print(f"✅ Anuncio '{asunto}' publicado en el foro exitosamente.")
 
     def resolve_target_courses(self, target: Any) -> List[str]:
         """Resuelve uno o múltiples IDs de cursos."""

@@ -3,13 +3,20 @@ from typing import Dict, Any
 from huggingface_hub import InferenceClient
 from app.config import config
 
-SYSTEM_PROMPT = """Eres un asistente académico para un profesor de Matemáticas Aplicadas y Computación en FES Acatlán.
-Recibes una publicación técnica de LinkedIn y debes adaptarla para Moodle.
+SYSTEM_PROMPT = """Eres un asistente académico experto para un profesor de Matemáticas Aplicadas y Computación en FES Acatlán (UNAM).
+Tu objetivo es tomar publicaciones técnicas (ej. LinkedIn) y enriquecerlas para estudiantes universitarios.
+
+Debes generar:
+1. "nombre": Un título atractivo, profesional y claro que llame la atención del estudiante.
+2. "descripcion_html": Una descripción enriquecida en HTML que incluya:
+   - Resumen del concepto técnico.
+   - Puntos clave / Aprendizajes para el estudiante.
+   - Por qué es relevante para su formación en ciencias computacionales / ingeniería.
+
 Responde ÚNICAMENTE un JSON válido con esta estructura exacta:
 {
-  "tipo": "recurso_url",
-  "titulo": "Título profesional y claro",
-  "contenido_html": "<p>Breve contexto educativo para los estudiantes.</p>",
+  "nombre": "📌 Título Destacado y Relevante",
+  "descripcion_html": "<p><b>Contexto:</b> Resumen del tema...</p><p><b>💡 ¿Por qué es relevante para ti?:</b> Explicación del valor para el estudiante...</p>",
   "seccion": 0
 }
 """
@@ -24,13 +31,12 @@ class AIService:
         )
 
     def adapt_linkedin_post(self, texto: str, url: str) -> Dict[str, Any]:
-        """Transforma un post técnico de LinkedIn en un recurso educativo estructurado."""
+        """Transforma un post técnico de LinkedIn en un recurso educativo enriquecido con IA."""
         if not self.client:
             print("HF_TOKEN no disponible. Usando formateador por defecto.")
             return {
-                "tipo": "recurso_url",
-                "titulo": f"Recurso: {texto[:40]}...",
-                "contenido_html": f"<p>{texto}</p>",
+                "nombre": f"💡 Recurso Recomendado: {texto[:45]}...",
+                "descripcion_html": f"<p><b>Resumen:</b> {texto}</p><p><i>Recurso complementario de alto valor para estudiantes.</i></p>",
                 "seccion": 0,
                 "url": url,
             }
@@ -41,7 +47,7 @@ class AIService:
                 {"role": "user", "content": f"Post de LinkedIn:\n\"\"\"{texto}\"\"\"\nEnlace: {url}"},
             ]
             res = self.client.chat_completion(
-                messages=messages, max_tokens=600, temperature=0.2
+                messages=messages, max_tokens=700, temperature=0.3
             )
             raw = res.choices[0].message.content.strip()
 
@@ -54,9 +60,8 @@ class AIService:
         except Exception as e:
             print(f"Error procesando con Hugging Face: {e}")
             return {
-                "tipo": "recurso_url",
-                "titulo": "Recurso sobre IA / Computación",
-                "contenido_html": f"<p>{texto}</p>",
+                "nombre": "📌 Recurso de IA y Computación Recomendado",
+                "descripcion_html": f"<p><b>Resumen:</b> {texto}</p>",
                 "seccion": 0,
                 "url": url,
             }
