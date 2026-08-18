@@ -279,6 +279,12 @@ class MoodleService:
                     else:
                         raise ValueError(f"Tipo de recurso desconocido: {tipo}")
 
+                # Limpieza automática si todo terminó exitosamente
+                if os.path.exists("debug"):
+                    import shutil
+                    shutil.rmtree("debug", ignore_errors=True)
+                    print("🧹 Capturas de pantalla de depuración eliminadas tras ejecución exitosa.")
+
             except Exception as e:
                 screenshot_path = self.take_debug_screenshot(page, "error_ejecucion_general.png")
                 print(f"❌ Error en la ejecución: {e}")
