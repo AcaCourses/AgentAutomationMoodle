@@ -34,7 +34,7 @@ HF_MODELS_POOL = [
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
 ]
 
-SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
+GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
 
 Tu objetivo es tomar la información de un recurso/noticia y los hallazgos de INVESTIGACIÓN DE MERCADO, para generar una publicación sumamente enriquecida para Moodle.
 
@@ -54,13 +54,39 @@ Debes determinar:
    - <h4>🚀 Habilidades clave para tu CV</h4> <ul><li>Habilidad 1</li><li>Habilidad 2</li><li>Habilidad 3</li></ul>
    - <h4>📌 Recomendación Académica</h4> <p>Mensaje motivacional del profesor para los alumnos de MAC.</p>
 
-Responde ÚNICAMENTE un JSON válido con esta estructura exacta:
-{
-  "empresa_detectada": "IBM",
-  "categoria_moodle": "Recursos",
-  "nombre": "🎓 Título Atractivo y Destacado",
-  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>...</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>...</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>...</li></ul><h4>📌 Recomendación Académica</h4><p>...</p>"
-}
+Responde ÚNICAMENTE un JSON válido con esta estructura exacta.
+"""
+
+JOB_OFFER_SYSTEM_PROMPT = """Eres un mentor de reclutamiento técnico para estudiantes universitarios de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
+
+Tu objetivo es analizar una Oferta de Empleo / Pasantía / Vacante (Job Post) y crear una publicación en Moodle orientada a la AUTOEVALUACIÓN Y ROADMAP DE APRENDIZAJE del estudiante.
+
+Debes determinar:
+1. "empresa_detectada": Nombre de la empresa convocante (ej. "Amazon", "Google", "IBM", "Mercado Libre", etc.).
+
+2. "categoria_moodle": "Interns & Job Offers"
+
+3. "nombre": Título motivador y profesional con emoji (ej. "💼 Vacante Backend Developer - Amazon (Pasantía)").
+
+4. "descripcion_html": Estructura HTML orientada a AUTOEVALUACIÓN Y ROADMAP que DEBE INCLUIR:
+   - <h4>💼 Detalles de la Vacante / Convocatoria</h4> <p>Resumen del puesto, empresa y los requisitos principales que buscan en el candidato.</p>
+   - <h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4>
+     <p>Responde mentalmente estas preguntas para medir si estás listo para postularte hoy:</p>
+     <ul>
+       <li><b>¿Dominas...?</b> [Pregunta sobre lenguaje o tecnología clave requerida]</li>
+       <li><b>¿Tienes experiencia en...?</b> [Pregunta sobre arquitecturas, herramientas o bases de datos]</li>
+       <li><b>¿Conoces...?</b> [Pregunta sobre metodologías, lógica de programación o inglés]</li>
+     </ul>
+   - <h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4>
+     <p>Si no cumples con todos los requisitos aún, enfócate en estudiar estos temas clave para esta y futuras vacantes:</p>
+     <ul>
+       <li><b>Paso 1 - Fundamentos:</b> [Tema técnico principal a estudiar]</li>
+       <li><b>Paso 2 - Herramientas Prácticas:</b> [Framework o herramienta técnica a practicar]</li>
+       <li><b>Paso 3 - Proyectos / CV:</b> [Consejo para construir un proyecto de portafolio relevante]</li>
+     </ul>
+   - <h4>📌 Recomendación del Profesor</h4> <p>Mensaje motivacional para no tener miedo a postularse e intentar la vacante.</p>
+
+Responde ÚNICAMENTE un JSON válido con esa estructura exacta.
 """
 
 
@@ -73,7 +99,6 @@ class AIService:
         if not linkedin_url:
             return None
 
-        # Si ya se envió una etiqueta <iframe> directamente
         if "<iframe" in linkedin_url.lower():
             match = re.search(r'src=["\']([^"\']+)["\']', linkedin_url)
             if match:
@@ -85,7 +110,6 @@ class AIService:
                 )
             return linkedin_url
 
-        # Extraer URN ID de URLs de LinkedIn (actividad o share)
         urn_match = re.search(r'(urn:li:(?:activity|share):\d+)', linkedin_url)
         if urn_match:
             urn = urn_match.group(1)
@@ -222,19 +246,11 @@ class AIService:
     def _fallback_categorize_and_enrich(
         self, texto: str, url: str, research_data: List[Dict[str, str]], logo_info: Dict[str, str], linkedin_url: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Motor de enriquecimiento sintético local."""
+        """Motor de enriquecimiento sintético local con lógica diferenciada para Ofertas de Empleo vs Recursos/Eventos."""
         texto_lower = texto.lower()
         empresa_name = logo_info.get("nombre_empresa", "Empresa Tecnológica")
 
-        if any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "call", "convocatoria", "solicítala", "fecha límite", "showcase"]):
-            categoria = "Eventos"
-            emoji = "📅"
-        elif any(w in texto_lower for w in ["job", "intern", "vacante", "empleo", "hiring", "contratando", "postula", "becario", "pasantía", "oferta"]):
-            categoria = "Interns & Job Offers"
-            emoji = "💼"
-        else:
-            categoria = "Recursos"
-            emoji = "📚"
+        is_job_post = any(w in texto_lower for w in ["job", "intern", "vacante", "empleo", "hiring", "contratando", "postula", "becario", "pasantía", "oferta", "reclutamiento"])
 
         lineas = [l.strip() for l in texto.split("\n") if l.strip()]
         titulo_raw = lineas[0] if lineas else texto[:50]
@@ -242,32 +258,64 @@ class AIService:
         if len(titulo_clean) > 60:
             titulo_clean = titulo_clean[:57] + "..."
 
-        nombre = f"{emoji} {titulo_clean}"
+        if is_job_post:
+            categoria = "Interns & Job Offers"
+            nombre = f"💼 {empresa_name}: {titulo_clean}"
 
-        mercado_info = ""
-        if research_data:
-            mercado_info = " ".join([r["snippet"] for r in research_data[:2]])
-        else:
-            mercado_info = (
-                f"Empresas e instituciones globales como {empresa_name} buscan activamente talento capacitado en estas herramientas clave, "
-                f"lo que incrementa significativamente la empleabilidad y el desarrollo profesional de los estudiantes."
+            base_html = (
+                f"<h4>💼 Detalles de la Vacante / Convocatoria ({empresa_name})</h4>"
+                f"<p>{texto}</p>"
+                f"<h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4>"
+                f"<p>Antes de postularte, evalúa honestamente tu nivel actual respondiendo estas preguntas:</p>"
+                f"<ul>"
+                f"  <li><b>¿Dominas los lenguajes principales solicitados?</b> Evalúa tus conocimientos prácticos en programación orientada a objetos o estructuras de datos.</li>"
+                f"  <li><b>¿Tienes proyectos en GitHub que respalden tus conocimientos?</b> Verifica si tus repositorios demuestran las tecnologías clave que busca {empresa_name}.</li>"
+                f"  <li><b>¿Puedes comunicarte técnicamente en inglés?</b> Revisa tu capacidad para redactar documentación o explicar tu código en inglés.</li>"
+                f"</ul>"
+                f"<h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4>"
+                f"<p>Si aún no cumples con el 100% de los requisitos, enfócate en fortalecer estos pilares clave:</p>"
+                f"<ul>"
+                f"  <li><b>Paso 1 - Fundamentos Técnicos:</b> Refuerza el lenguaje de programación principal y patrones de diseño.</li>"
+                f"  <li><b>Paso 2 - Herramientas de la Industria:</b> Practica con Git, Docker, bases de datos SQL/NoSQL y APIs REST.</li>"
+                f"  <li><b>Paso 3 - Proyecto de Portafolio:</b> Desarrolla una aplicación pequeña que resuelva un problema real usando la tecnología solicitada.</li>"
+                f"</ul>"
+                f"<h4>📌 Recomendación del Profesor</h4>"
+                f"<p>¡No tengas miedo de postularte a {empresa_name}! Incluso si sientes que te falta aprender un tema, el proceso de entrevista te dará valiosa experiencia en la industria real.</p>"
             )
+        else:
+            if any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "call", "convocatoria", "solicítala", "fecha límite", "showcase"]):
+                categoria = "Eventos"
+                emoji = "📅"
+            else:
+                categoria = "Recursos"
+                emoji = "📚"
 
-        base_html = (
-            f"<h4>🎓 ¿De qué trata este recurso?</h4>"
-            f"<p>{texto}</p>"
-            f"<h4>💼 ¿Por qué {empresa_name} y la industria lo solicitan?</h4>"
-            f"<p><b>Impacto en el mercado laboral:</b> {mercado_info}</p>"
-            f"<h4>🚀 Habilidades clave para potenciar tu CV</h4>"
-            f"<ul>"
-            f"  <li><b>Competitividad Internacional:</b> Formación respaldada por la industria global.</li>"
-            f"  <li><b>Perfil de Alto Valor:</b> Diferenciador clave para postulaciones laborales en {empresa_name} y tecnológicas.</li>"
-            f"  <li><b>Registro / Acceso Oficial:</b> <a href='{url}' target='_blank'>Haz clic aquí para ingresar al registro directo</a>.</li>"
-            f"</ul>"
-            f"<h4>📌 Recomendación del Profesor</h4>"
-            f"<p>Este contenido de {empresa_name} ha sido seleccionado para complementar tu preparación académica en FES Acatlán. "
-            f"Aprovechar estas convocatorias durante tu etapa universitaria potenciará tu perfil laboral al egresar.</p>"
-        )
+            nombre = f"{emoji} {titulo_clean}"
+
+            mercado_info = ""
+            if research_data:
+                mercado_info = " ".join([r["snippet"] for r in research_data[:2]])
+            else:
+                mercado_info = (
+                    f"Empresas e instituciones globales como {empresa_name} buscan activamente talento capacitado en estas herramientas clave, "
+                    f"lo que incrementa significativamente la empleabilidad y el desarrollo profesional de los estudiantes."
+                )
+
+            base_html = (
+                f"<h4>🎓 ¿De qué trata este recurso?</h4>"
+                f"<p>{texto}</p>"
+                f"<h4>💼 ¿Por qué {empresa_name} y la industria lo solicitan?</h4>"
+                f"<p><b>Impacto en el mercado laboral:</b> {mercado_info}</p>"
+                f"<h4>🚀 Habilidades clave para potenciar tu CV</h4>"
+                f"<ul>"
+                f"  <li><b>Competitividad Internacional:</b> Formación respaldada por la industria global.</li>"
+                f"  <li><b>Perfil de Alto Valor:</b> Diferenciador clave para postulaciones laborales en {empresa_name} y tecnológicas.</li>"
+                f"  <li><b>Registro / Acceso Oficial:</b> <a href='{url}' target='_blank'>Haz clic aquí para ingresar al registro directo</a>.</li>"
+                f"</ul>"
+                f"<h4>📌 Recomendación del Profesor</h4>"
+                f"<p>Este contenido de {empresa_name} ha sido seleccionado para complementar tu preparación académica en FES Acatlán. "
+                f"Aprovechar estas convocatorias durante tu etapa universitaria potenciará tu perfil laboral al egresar.</p>"
+            )
 
         final_html = self.attach_header_to_html(base_html, logo_info, linkedin_url)
 
@@ -289,13 +337,21 @@ class AIService:
         research = self.perform_web_research(texto[:60], empresa_name)
         research_str = "\n".join([f"- {r['title']}: {r['snippet']}" for r in research])
 
+        # Determinar si el post corresponde a una oferta de empleo para seleccionar el System Prompt óptimo
+        texto_lower = texto.lower()
+        is_job_post = any(w in texto_lower for w in ["job", "intern", "vacante", "empleo", "hiring", "contratando", "postula", "becario", "pasantía", "oferta", "reclutamiento"])
+
+        active_system_prompt = JOB_OFFER_SYSTEM_PROMPT if is_job_post else GENERAL_SYSTEM_PROMPT
+        if is_job_post:
+            print("💼 Detectada Oferta de Empleo / Job Post. Utilizando Prompt Especializado de Autoevaluación y Roadmap.")
+
         if not self.hf_token:
-            print("HF_TOKEN no configurado. Utilizando motor sintético.")
+            print("HF_TOKEN no configurado. Utilizando motor sintético con plantilla adaptativa.")
             return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url)
 
         user_prompt = (
-            f"Empresa Responsable: {empresa_name}\n"
-            f"Publicación de origen:\n\"\"\"{texto}\"\"\"\nEnlace de Registro: {url}\n\n"
+            f"Empresa Convocante: {empresa_name}\n"
+            f"Publicación de origen:\n\"\"\"{texto}\"\"\"\nEnlace de Registro / Postulación: {url}\n\n"
             f"Datos de Investigación Web sobre {empresa_name} y Mercado:\n{research_str}"
         )
 
@@ -304,10 +360,10 @@ class AIService:
                 print(f"🤖 Solicitando enriquecimiento a modelo HF: '{model_name}'...")
                 client = InferenceClient(model=model_name, token=self.hf_token)
                 messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": active_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ]
-                res = client.chat_completion(messages=messages, max_tokens=1000, temperature=0.3)
+                res = client.chat_completion(messages=messages, max_tokens=1100, temperature=0.3)
                 raw = res.choices[0].message.content.strip()
 
                 if "```" in raw:
@@ -315,15 +371,14 @@ class AIService:
 
                 data = json.loads(raw)
                 data["url"] = url
-                if "categoria_moodle" not in data:
-                    data["categoria_moodle"] = "Recursos"
+                if is_job_post:
+                    data["categoria_moodle"] = "Interns & Job Offers"
 
-                # Inyectar iframe de LinkedIn (o logo de la empresa si no hay iframe)
                 data["descripcion_html"] = self.attach_header_to_html(
                     data.get("descripcion_html", ""), logo_info, linkedin_url
                 )
                 data["empresa"] = empresa_name
-                print(f"✅ Enriquecimiento e incrustación de encabezado integrados exitosamente con modelo '{model_name}'.")
+                print(f"✅ Enriquecimiento e incrustación integrados exitosamente con modelo '{model_name}'.")
                 return data
             except Exception as e:
                 print(f"Aviso con modelo '{model_name}': {e}. Probando siguiente modelo...")
