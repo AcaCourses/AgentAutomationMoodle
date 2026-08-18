@@ -61,13 +61,24 @@ app.router.route_class = SanitizedJSONRoute
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 ai_service = AIService()
 moodle_service = MoodleService()
+
+
+@app.options("/{full_path:path}")
+def options_handler(full_path: str):
+    return Response(status_code=200)
+
+
+@app.options("/")
+def options_root():
+    return Response(status_code=200)
 
 
 @app.get("/")
