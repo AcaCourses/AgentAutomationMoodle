@@ -52,8 +52,8 @@ class SanitizedJSONRoute(APIRoute):
 
 
 app = FastAPI(
-    title="Agente Moodle SEA Acatlán API",
-    description="API Webhook para clasificar publicaciones técnicas y subirlas automáticamente a Moodle con incrustación de publicaciones de LinkedIn (Iframe) y logos oficiales.",
+    title="Moodi - Agente Moodle SEA Acatlán API",
+    description="API Webhook de Moodi para clasificar publicaciones técnicas y subirlas automáticamente a Moodle con incrustación de publicaciones de LinkedIn (Iframe) y logos oficiales.",
     version="2.0.0",
 )
 app.router.route_class = SanitizedJSONRoute
@@ -85,7 +85,7 @@ def options_root():
 def read_root():
     return {
         "status": "online",
-        "service": "Agente Moodle SEA Acatlán API",
+        "service": "Moodi - Agente Moodle SEA Acatlán API",
         "version": "2.0.0",
         "cursos_configurados": config.COURSE_IDS,
     }
