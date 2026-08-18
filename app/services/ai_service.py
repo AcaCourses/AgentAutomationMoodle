@@ -3,7 +3,7 @@ import re
 import time
 import base64
 import httpx
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 from urllib.parse import urlparse
 from huggingface_hub import InferenceClient
 from ddgs import DDGS
@@ -153,26 +153,36 @@ class AIService:
         self.hf_token = config.HF_TOKEN
         self.last_gemini_call = 0.0
 
-    def enforce_gemini_rate_limit(self):
+    def _log(self, msg: str, level: str = "info", cb: Optional[Callable[[str, str], None]] = None):
+        print(msg)
+        if cb:
+            try:
+                cb(msg, level)
+            except Exception:
+                pass
+
+    def enforce_gemini_rate_limit(self, cb: Optional[Callable[[str, str], None]] = None):
         """Pausa estratégica de 4.5 segundos para no exceder jamás el límite estricto de 15 RPM en Gemini."""
         now = time.time()
         elapsed = now - self.last_gemini_call
         if elapsed < 4.5:
             sleep_time = 4.5 - elapsed
-            print(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...")
+            self._log(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...", "info", cb)
             time.sleep(sleep_time)
         self.last_gemini_call = time.time()
 
-    def call_gemini_api(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any]]:
+    def call_gemini_api(
+        self, system_prompt: str, user_prompt: str, cb: Optional[Callable[[str, str], None]] = None
+    ) -> Optional[Dict[str, Any]]:
         """Llama a la API de Google AI Studio Gemini con garantía de JSON estructurado y control estricto de cuota."""
         if not self.gemini_key or self.gemini_key == "tu_gemini_api_key_aqui":
             return None
 
-        self.enforce_gemini_rate_limit()
+        self.enforce_gemini_rate_limit(cb)
 
         for model_name in GEMINI_MODELS_POOL:
             try:
-                print(f"🌟 Solicitando enriquecimiento a Google AI Studio: '{model_name}'...")
+                self._log(f"🌟 Solicitando enriquecimiento a Google AI Studio: '{model_name}'...", "info", cb)
                 endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.gemini_key}"
                 
                 payload = {
@@ -200,14 +210,14 @@ class AIService:
                         if candidates:
                             raw_text = candidates[0]["content"]["parts"][0]["text"]
                             parsed = json.loads(raw_text, strict=False)
-                            print(f"✅ Respuesta exitosa de Google AI Studio Gemini ('{model_name}').")
+                            self._log(f"✅ Enriquecimiento exitoso con Google AI Studio Gemini ('{model_name}').", "success", cb)
                             return parsed
                     elif response.status_code == 429:
-                        print(f"⚠️ Rate limit 429 alcanzado en Gemini ('{model_name}'). Probando siguiente modelo...")
+                        self._log(f"⚠️ Rate limit 429 alcanzado en Gemini ('{model_name}'). Probando siguiente modelo...", "warn", cb)
                     else:
-                        print(f"Aviso en Gemini ('{model_name}'): HTTP {response.status_code} - {response.text[:150]}")
+                        self._log(f"Aviso en Gemini ('{model_name}'): HTTP {response.status_code} - {response.text[:150]}", "warn", cb)
             except Exception as e:
-                print(f"Aviso al consultar Google AI Studio ({model_name}): {e}")
+                self._log(f"Aviso al consultar Google AI Studio ({model_name}): {e}", "warn", cb)
 
         return None
 
@@ -265,7 +275,9 @@ class AIService:
         b64_str = base64.b64encode(svg_code.encode("utf-8")).decode("utf-8")
         return f"data:image/svg+xml;base64,{b64_str}"
 
-    def resolve_company_logo(self, empresa_input: Optional[str], url: str, texto: str) -> Dict[str, str]:
+    def resolve_company_logo(
+        self, empresa_input: Optional[str], url: str, texto: str, cb: Optional[Callable[[str, str], None]] = None
+    ) -> Dict[str, str]:
         """Resuelve el logo de la empresa y lo convierte a Base64."""
         target_name = (empresa_input or "").strip()
         domain = ""
@@ -296,7 +308,7 @@ class AIService:
             target_name = "Empresa Tecnológica"
             domain = "linkedin.com"
 
-        print(f"🏢 Empresa identificada: '{target_name}' (Dominio: {domain})")
+        self._log(f"🏢 Empresa identificada: '{target_name}' (Dominio: {domain})", "info", cb)
         logo_urls_to_try = [
             f"https://logo.clearbit.com/{domain}",
             f"https://www.google.com/s2/favicons?domain={domain}&sz=128",
@@ -306,6 +318,7 @@ class AIService:
         for img_url in logo_urls_to_try:
             base64_logo = self.fetch_image_as_base64(img_url)
             if base64_logo:
+                self._log("🖼️ Logo oficial convertido a Base64 e inyectado.", "info", cb)
                 break
 
         if not base64_logo:
@@ -314,19 +327,19 @@ class AIService:
         return {"nombre_empresa": target_name, "domain": domain, "base64_logo": base64_logo}
 
     def attach_header_to_html(
-        self, html_content: str, logo_info: Dict[str, str], linkedin_url: Optional[str] = None
+        self, html_content: str, logo_info: Dict[str, str], linkedin_url: Optional[str] = None, cb: Optional[Callable[[str, str], None]] = None
     ) -> str:
         """Inyecta el iframe de LinkedIn o el logo Base64 de la empresa."""
         iframe_header = self.parse_linkedin_iframe(linkedin_url)
         if iframe_header:
-            print("📌 Encabezado: Publicación de LinkedIn incrustada (Iframe).")
+            self._log("📌 Encabezado: Publicación de LinkedIn incrustada (Iframe).", "info", cb)
             return iframe_header + html_content
 
         base64_logo = logo_info.get("base64_logo")
         empresa_name = logo_info.get("nombre_empresa", "Empresa")
 
         if base64_logo:
-            print(f"📌 Encabezado: Tarjeta de logo oficial de {empresa_name}.")
+            self._log(f"📌 Encabezado: Tarjeta de logo oficial de {empresa_name}.", "info", cb)
             logo_card = (
                 f'<div style="text-align: center; padding: 16px; margin-bottom: 20px; background: #ffffff; '
                 f'border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">'
@@ -339,12 +352,14 @@ class AIService:
 
         return html_content
 
-    def perform_web_research(self, topic: str, empresa: str) -> List[Dict[str, str]]:
+    def perform_web_research(
+        self, topic: str, empresa: str, cb: Optional[Callable[[str, str], None]] = None
+    ) -> List[Dict[str, str]]:
         """Realiza una búsqueda web concisa en tiempo real para obtener datos del mercado laboral."""
         results = []
         try:
             search_query = f"{empresa} {topic} importancia empresas empleo tecnología STEM"
-            print(f"🔍 Investigando en la web: '{search_query[:70]}'...")
+            self._log(f"🔍 Investigando mercado laboral en la web: '{search_query[:60]}...' ", "info", cb)
             with DDGS() as ddgs:
                 ddg_res = list(ddgs.text(search_query, max_results=3))
                 for item in ddg_res:
@@ -352,13 +367,13 @@ class AIService:
                         "title": item.get("title", ""),
                         "snippet": item.get("body", "")
                     })
-            print(f"✅ Investigación web completada ({len(results)} resultados obtenidos).")
+            self._log(f"✅ Investigación web completada ({len(results)} resultados obtenidos).", "info", cb)
         except Exception as e:
-            print(f"Aviso en investigación web: {e}")
+            self._log(f"Aviso en investigación web: {e}", "warn", cb)
         return results
 
     def _fallback_categorize_and_enrich(
-        self, texto: str, url: str, research_data: List[Dict[str, str]], logo_info: Dict[str, str], linkedin_url: Optional[str] = None
+        self, texto: str, url: str, research_data: List[Dict[str, str]], logo_info: Dict[str, str], linkedin_url: Optional[str] = None, cb: Optional[Callable[[str, str], None]] = None
     ) -> Dict[str, Any]:
         """Motor de enriquecimiento sintético local."""
         texto_lower = texto.lower()
@@ -403,7 +418,7 @@ class AIService:
                 f"<h4>📌 Recomendación del Profesor</h4><p>Excelente recurso para profundizar en tu carrera.</p>"
             )
 
-        final_html = self.attach_header_to_html(base_html, logo_info, linkedin_url)
+        final_html = self.attach_header_to_html(base_html, logo_info, linkedin_url, cb=cb)
         return {
             "categoria_moodle": categoria,
             "nombre": nombre,
@@ -413,7 +428,7 @@ class AIService:
         }
 
     def adapt_linkedin_post(
-        self, texto: str, url: str, empresa_input: Optional[str] = None, linkedin_url: Optional[str] = None
+        self, texto: str, url: str, empresa_input: Optional[str] = None, linkedin_url: Optional[str] = None, cb: Optional[Callable[[str, str], None]] = None
     ) -> Dict[str, Any]:
         """
         Jerarquía de Ejecución con 6 Few-Shot Prompts (2 por sección):
@@ -421,10 +436,10 @@ class AIService:
         2. 🥈 Hugging Face Pool (Qwen 72B / Llama 70B / Qwen Coder 32B / Mistral Nemo)
         3. 🥉 Motor Sintético Local
         """
-        logo_info = self.resolve_company_logo(empresa_input, url, texto)
+        logo_info = self.resolve_company_logo(empresa_input, url, texto, cb=cb)
         empresa_name = logo_info["nombre_empresa"]
 
-        research = self.perform_web_research(texto[:60], empresa_name)
+        research = self.perform_web_research(texto[:60], empresa_name, cb=cb)
         research_str = "\n".join([f"- {r['title']}: {r['snippet']}" for r in research])
 
         texto_lower = texto.lower()
@@ -439,7 +454,7 @@ class AIService:
 
         active_system_prompt = JOB_OFFER_SYSTEM_PROMPT if is_job_post else GENERAL_SYSTEM_PROMPT
         if is_job_post:
-            print("💼 Detectada Oferta de Empleo / Job Post. Utilizando Prompt Especializado de Autoevaluación y Roadmap.")
+            self._log("💼 Detectada Oferta de Empleo / Job Post. Utilizando Prompt Especializado de Autoevaluación y Roadmap.", "info", cb)
 
         user_prompt = (
             f"Empresa Convocante: {empresa_name}\n"
@@ -448,7 +463,7 @@ class AIService:
         )
 
         # 1. 🥇 PRIORIDAD 1: Google AI Studio Gemini API
-        gemini_res = self.call_gemini_api(active_system_prompt, user_prompt)
+        gemini_res = self.call_gemini_api(active_system_prompt, user_prompt, cb=cb)
         if gemini_res:
             gemini_res["url"] = url
             if is_job_post:
@@ -457,7 +472,7 @@ class AIService:
                 gemini_res["categoria_moodle"] = "Recursos"
 
             gemini_res["descripcion_html"] = self.attach_header_to_html(
-                gemini_res.get("descripcion_html", ""), logo_info, linkedin_url
+                gemini_res.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
             )
             gemini_res["empresa"] = empresa_name
             return gemini_res
@@ -466,7 +481,7 @@ class AIService:
         if self.hf_token and self.hf_token != "hf_tu_token_aqui":
             for model_name in HF_MODELS_POOL:
                 try:
-                    print(f"🤖 Solicitando enriquecimiento a Hugging Face: '{model_name}'...")
+                    self._log(f"🤖 Solicitando enriquecimiento a Hugging Face: '{model_name}'...", "info", cb)
                     client = InferenceClient(model=model_name, token=self.hf_token)
                     messages = [
                         {"role": "system", "content": active_system_prompt},
@@ -498,14 +513,14 @@ class AIService:
                         data["categoria_moodle"] = "Recursos"
 
                     data["descripcion_html"] = self.attach_header_to_html(
-                        data.get("descripcion_html", ""), logo_info, linkedin_url
+                        data.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
                     )
                     data["empresa"] = empresa_name
-                    print(f"✅ Enriquecimiento exitoso con modelo Hugging Face '{model_name}'.")
+                    self._log(f"✅ Enriquecimiento exitoso con modelo Hugging Face '{model_name}'.", "success", cb)
                     return data
                 except Exception as e:
-                    print(f"Aviso con modelo HF '{model_name}': {e}. Probando siguiente...")
+                    self._log(f"Aviso con modelo HF '{model_name}': {e}. Probando siguiente...", "warn", cb)
 
         # 3. 🥉 PRIORIDAD 3: Motor Sintético Local
-        print("💡 Utilizando Motor Sintético Local de Respaldo.")
-        return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url)
+        self._log("💡 Utilizando Motor Sintético Local de Respaldo.", "info", cb)
+        return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url, cb=cb)

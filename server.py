@@ -34,9 +34,7 @@ class SanitizedJSONRoute(APIRoute):
                         body_bytes = await request.body()
                         if body_bytes:
                             body_str = body_bytes.decode("utf-8", errors="ignore")
-                            # Parsear usando strict=False para aceptar \n y \t dentro de cadenas de texto
                             parsed_data = json.loads(body_str, strict=False)
-                            # Serializar de nuevo a JSON estándar con \n escapados correctamente
                             sanitized_bytes = json.dumps(parsed_data).encode("utf-8")
 
                             async def receive():
@@ -108,7 +106,6 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
     def log_cb(msg: str, level: str = "info"):
         logs.append({"timestamp": asyncio.get_event_loop().time() if asyncio.get_event_loop().is_running() else 0, "message": msg, "level": level})
 
-    # Sanitizar placeholder 'string' si proviene de Swagger UI o cURL predeterminado
     linkedin_url = payload.linkedin_url
     if linkedin_url and linkedin_url.strip().lower() in ["string", "null", "none", ""]:
         linkedin_url = None
@@ -117,10 +114,9 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
     if target_course_id is None or str(target_course_id).strip().lower() in ["string", "null", "none", ""]:
         target_course_id = config.COURSE_IDS
 
-    log_cb("🤖 Analizando publicación con IA...", "info")
-    # 1. Clasificación inteligente y enriquecimiento (soporta 'empresa' y 'linkedin_url' opcional)
+    log_cb("🤖 Analizando publicación y consultando IA...", "info")
     datos_ia = ai_service.adapt_linkedin_post(
-        payload.texto, payload.url, payload.empresa, linkedin_url
+        payload.texto, payload.url, payload.empresa, linkedin_url, cb=log_cb
     )
     log_cb(f"✅ Análisis IA completado: '{datos_ia.get('nombre')}' ({datos_ia.get('categoria_moodle')})", "success")
 
@@ -133,7 +129,6 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
         "seccion": payload.seccion if payload.seccion != 0 else None,
     }
 
-    # 2. Publicación directa en Moodle con Playwright en la sección seleccionada
     try:
         cursos_publicados = moodle_service.publish_item(item_recurso, course_id=target_course_id, log_cb=log_cb)
         return {
@@ -181,7 +176,7 @@ async def webhook_linkedin_stream(payload: LinkedInPayload, x_token: str = Heade
 
             send_log("🤖 Procesando publicación y clasificando contenido con IA...", "info")
             datos_ia = ai_service.adapt_linkedin_post(
-                payload.texto, payload.url, payload.empresa, linkedin_url
+                payload.texto, payload.url, payload.empresa, linkedin_url, cb=send_log
             )
             send_log(f"🧠 Clasificado como: '{datos_ia.get('nombre')}' | Categoría: '{datos_ia.get('categoria_moodle')}'", "success")
 
@@ -230,4 +225,3 @@ if __name__ == "__main__":
     port = 8000
     setup_ngrok_tunnel(port)
     uvicorn.run(app, host="0.0.0.0", port=port)
-
