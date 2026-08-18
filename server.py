@@ -8,7 +8,7 @@ from app.services.ngrok_service import setup_ngrok_tunnel
 
 app = FastAPI(
     title="Agente Moodle SEA Acatlán API",
-    description="API Webhook para clasificar publicaciones técnicas y subirlas automáticamente a Moodle.",
+    description="API Webhook para clasificar publicaciones técnicas y subirlas automáticamente a Moodle con logos corporativos oficiales.",
     version="2.0.0",
 )
 
@@ -39,8 +39,8 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
             detail="Las credenciales de Moodle no están configuradas en el archivo .env",
         )
 
-    # 1. Clasificación inteligente y enriquecimiento con IA
-    datos_ia = ai_service.adapt_linkedin_post(payload.texto, payload.url)
+    # 1. Clasificación inteligente y enriquecimiento con IA (soporta campo opcional 'empresa')
+    datos_ia = ai_service.adapt_linkedin_post(payload.texto, payload.url, payload.empresa)
     target_course_id = payload.course_id or config.COURSE_IDS
 
     item_recurso = {
@@ -58,6 +58,7 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
         return {
             "status": "ok",
             "publicado": datos_ia.get("nombre"),
+            "empresa": datos_ia.get("empresa"),
             "categoria_moodle": datos_ia.get("categoria_moodle"),
             "cursos_afectados": cursos_publicados,
             "datos_ia": datos_ia,

@@ -6,12 +6,17 @@ class LinkedInPayload(BaseModel):
     texto: str = Field(
         ...,
         description="Contenido original del post de LinkedIn",
-        json_schema_extra={"example": "Un excelente resumen de cómo implementar RAG con bases de datos vectoriales y embeddings multimodales para mejorar la precisión de los modelos."}
+        json_schema_extra={"example": "The IBM Z Student Ambassador Showcase is September 9 at 12PM EDT..."}
     )
     url: str = Field(
         ...,
         description="Enlace del post original",
-        json_schema_extra={"example": "https://www.linkedin.com/posts/ejemplo-rag-123"}
+        json_schema_extra={"example": "https://airtable.com/appnhBCVc9hDgR8mz/paghP08IdSWBkI1Zj/form"}
+    )
+    empresa: Optional[str] = Field(
+        default=None,
+        description="Nombre o dominio de la empresa (ej. 'IBM', 'Santander', 'Google', 'Microsoft', 'ibm.com'). Si no se indica, la IA la detectará automáticamente.",
+        json_schema_extra={"example": "IBM"}
     )
     seccion: Optional[int] = Field(default=0, description="Índice numérico de la sección en Moodle")
     course_id: Optional[Union[int, str, List[Union[int, str]]]] = Field(
@@ -24,6 +29,7 @@ class LinkedInPayload(BaseModel):
 class RecursoItem(BaseModel):
     tipo: Literal["recurso_url", "anuncio_foro"] = "recurso_url"
     course_id: Optional[Union[str, int, List[Union[str, int]]]] = None
+    empresa: Optional[str] = None
     nombre: Optional[str] = None
     asunto: Optional[str] = None
     url: Optional[str] = None

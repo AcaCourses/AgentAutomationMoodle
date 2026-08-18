@@ -1,12 +1,31 @@
 import json
 import re
 from typing import Dict, Any, List, Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 from huggingface_hub import InferenceClient
 from ddgs import DDGS
 from app.config import config
 
-# Modelos de pesos abiertos soportados en Hugging Face
+# Mapas de dominios conocidos para logos corporativos HD
+KNOWN_DOMAINS = {
+    "ibm": "ibm.com",
+    "santander": "santander.com",
+    "santander open academy": "santanderopenacademy.com",
+    "google": "google.com",
+    "microsoft": "microsoft.com",
+    "amazon": "amazon.com",
+    "aws": "aws.amazon.com",
+    "meta": "meta.com",
+    "facebook": "meta.com",
+    "linkedin": "linkedin.com",
+    "airtable": "airtable.com",
+    "oracle": "oracle.com",
+    "cisco": "cisco.com",
+    "nvidia": "nvidia.com",
+    "intel": "intel.com",
+    "github": "github.com",
+}
+
 HF_MODELS_POOL = [
     "Qwen/Qwen2.5-72B-Instruct",
     "meta-llama/Llama-3.3-70B-Instruct",
@@ -14,26 +33,29 @@ HF_MODELS_POOL = [
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
 ]
 
-SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de la Licenciatura en Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
+SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
 
-Tu objetivo es tomar la información de un recurso/noticia y los hallazgos de INVESTIGACIÓN DE MERCADO Y BÚSQUEDA WEB, para generar una publicación sumamente enriquecida, persuasiva y de alto valor para Moodle.
+Tu objetivo es tomar la información de un recurso/noticia y los hallazgos de INVESTIGACIÓN DE MERCADO, para generar una publicación sumamente enriquecida para Moodle.
 
 Debes determinar:
-1. "categoria_moodle": Clasifica en una de estas 3 opciones:
+1. "empresa_detectada": Identifica el nombre o marca de la empresa principal responsable (ej. "IBM", "Santander", "Microsoft", "Google", "Amazon", etc.).
+
+2. "categoria_moodle": Clasifica en una de estas 3 opciones:
    - "Eventos" (Si es un webinar, taller, beca en vivo, convocatoria con fecha límite o conferencia)
    - "Interns & Job Offers" (Si es una vacante de empleo, pasantía o convocatoria laboral directa)
    - "Recursos" (Si es un curso, tutorial, artículo, repositorio o herramienta técnica)
 
-2. "nombre": Un título irresistible, profesional y motivador (con emoji inicial, máximo 70 caracteres).
+3. "nombre": Un título irresistible, profesional y motivador (con emoji inicial, máximo 70 caracteres).
 
-3. "descripcion_html": Estructura HTML rica y detallada que DEBE INCLUIR:
+4. "descripcion_html": Estructura HTML rica y detallada que DEBE INCLUIR:
    - <h4>🎓 ¿De qué trata este recurso?</h4> <p>Resumen claro del contenido y sus características principales.</p>
-   - <h4>💼 ¿Por qué las empresas y la industria lo solicitan?</h4> <p>Explicación detallada respaldada por la investigación web sobre por qué gigantes tecnológicos o empresas (ej. IBM, Amazon, Santander, Google, etc.) buscan estas habilidades, impacto en salarios u oportunidades internacionales.</p>
+   - <h4>💼 ¿Por qué las empresas y la industria lo solicitan?</h4> <p>Explicación respaldada por por qué esta empresa u otras gigantes tecnológicas buscan estas habilidades, impacto en salarios u oportunidades internacionales.</p>
    - <h4>🚀 Habilidades clave para tu CV</h4> <ul><li>Habilidad 1</li><li>Habilidad 2</li><li>Habilidad 3</li></ul>
-   - <h4>📌 Recomendación Académica</h4> <p>Mensaje motivacional del profesor indicando por qué ningún alumno de MAC debe dejarlo pasar.</p>
+   - <h4>📌 Recomendación Académica</h4> <p>Mensaje motivacional del profesor para los alumnos de MAC.</p>
 
 Responde ÚNICAMENTE un JSON válido con esta estructura exacta:
 {
+  "empresa_detectada": "IBM",
   "categoria_moodle": "Recursos",
   "nombre": "🎓 Título Atractivo y Destacado",
   "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>...</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>...</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>...</li></ul><h4>📌 Recomendación Académica</h4><p>...</p>"
@@ -45,50 +67,73 @@ class AIService:
     def __init__(self):
         self.hf_token = config.HF_TOKEN
 
-    def extract_search_topic(self, texto: str, url: str) -> str:
-        """Extrae un tema conciso de 3 a 5 palabras para búsquedas web e imágenes."""
-        clean_text = re.sub(r'https?://\S+', '', texto).strip()
-        first_line = [l.strip() for l in clean_text.split('\n') if l.strip()]
-        topic_base = first_line[0] if first_line else clean_text[:40]
-        words = [w for w in re.findall(r'\b[A-Za-z0-9áéíóúÁÉÍÓÚñÑ]{3,}\b', topic_base) if w.lower() not in ['para', 'sobre', 'desde', 'con', 'este', 'esta', 'como']]
-        return " ".join(words[:5]) if words else "Tecnologia Computacion"
+    def resolve_company_logo(self, empresa_input: Optional[str], url: str, texto: str) -> Dict[str, str]:
+        """
+        Resuelve de forma precisa y determinista el nombre de la empresa y la URL de su logo oficial.
+        """
+        target_name = (empresa_input or "").strip()
+        domain = ""
 
-    def search_web_image(self, topic: str, url: str) -> Optional[str]:
-        """Busca una imagen o logo relevante en la web o utiliza Clearbit/Pollinations de respaldo."""
-        print(f"🖼️ Buscando imagen relevante en la web para '{topic}'...")
-        try:
-            with DDGS() as ddgs:
-                img_res = list(ddgs.images(f"{topic} logo banner", max_results=3))
-                for item in img_res:
-                    img_url = item.get("image")
-                    if img_url and (img_url.startswith("http://") or img_url.startswith("https://")):
-                        print(f"✅ Imagen encontrada vía DuckDuckGo: {img_url}")
-                        return img_url
-        except Exception as e:
-            print(f"Aviso en búsqueda de imagen DDG: {e}")
-
-        # Fallback 1: Intentar extraer el dominio para Clearbit Logo API (ej. ibm.com, santander.com)
-        try:
+        # 1. Si el usuario ingresó un dominio directamente (ej. "ibm.com" o "santander.com")
+        if "." in target_name and not " " in target_name:
+            domain = target_name.lower()
+            target_name = domain.split(".")[0].upper()
+        elif target_name.lower() in KNOWN_DOMAINS:
+            domain = KNOWN_DOMAINS[target_name.lower()]
+        elif target_name:
+            # Normalizar nombre ingresado
+            domain_candidate = target_name.lower().replace(" ", "") + ".com"
+            domain = domain_candidate
+        else:
+            # Extraer del dominio de la URL proporcionada
             parsed = urlparse(url)
-            domain = parsed.netloc.replace("www.", "")
-            if domain and "." in domain:
-                logo_url = f"https://logo.clearbit.com/{domain}"
-                print(f"💡 Utilizando logo oficial del sitio: {logo_url}")
-                return logo_url
-        except Exception:
-            pass
+            netloc = parsed.netloc.replace("www.", "")
+            if netloc and "." in netloc:
+                domain = netloc
+                target_name = netloc.split(".")[0].capitalize()
 
-        # Fallback 2: Banner conceptual vía Pollinations AI
-        safe_topic = quote(topic)
-        pollinations_url = f"https://image.pollinations.ai/prompt/professional%20technology%20banner%20{safe_topic}?width=600&height=300&nologo=true"
-        return pollinations_url
+        # Si aún no tenemos nombre, buscar marcas clave en el texto
+        if not target_name:
+            texto_lower = texto.lower()
+            for key, dom in KNOWN_DOMAINS.items():
+                if key in texto_lower:
+                    target_name = key.upper()
+                    domain = dom
+                    break
 
-    def perform_web_research(self, topic: str) -> List[Dict[str, str]]:
+        if not target_name:
+            target_name = "Empresa Tecnológica"
+            domain = "linkedin.com"
+
+        logo_url = f"https://logo.clearbit.com/{domain}"
+        print(f"🏢 Empresa identificada: '{target_name}' | Logo oficial: {logo_url}")
+        return {"nombre_empresa": target_name, "domain": domain, "logo_url": logo_url}
+
+    def attach_logo_header_to_html(self, html_content: str, logo_info: Dict[str, str]) -> str:
+        """Incrustar la tarjeta con el logo oficial de la empresa al inicio de la descripción HTML."""
+        logo_url = logo_info.get("logo_url")
+        empresa_name = logo_info.get("nombre_empresa", "Empresa")
+
+        if not logo_url:
+            return html_content
+
+        header_card = (
+            f'<div style="text-align: center; padding: 15px; margin-bottom: 20px; background: #ffffff; '
+            f'border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">'
+            f'  <img src="{logo_url}" alt="Logo oficial {empresa_name}" '
+            f'       onerror="this.onerror=null; this.src=\'https://www.google.com/s2/favicons?domain={logo_info.get("domain", "ibm.com")}&sz=128\';" '
+            f'       style="max-height: 75px; max-width: 220px; object-fit: contain; display: inline-block;" />'
+            f'  <div style="font-size: 13px; color: #64748b; margin-top: 6px; font-weight: 500;">Contenido Oficial & Convocatoria de {empresa_name}</div>'
+            f'</div>'
+        )
+        return header_card + html_content
+
+    def perform_web_research(self, topic: str, empresa: str) -> List[Dict[str, str]]:
         """Realiza una búsqueda web concisa en tiempo real para obtener datos reales del mercado laboral."""
         results = []
         try:
-            search_query = f"{topic} importancia empresas empleo tecnologia"
-            print(f"🔍 Investigando en la web: '{search_query}'...")
+            search_query = f"{empresa} {topic} importancia empresas empleo tecnología STEM"
+            print(f"🔍 Investigando en la web: '{search_query[:70]}'...")
             with DDGS() as ddgs:
                 ddg_res = list(ddgs.text(search_query, max_results=3))
                 for item in ddg_res:
@@ -101,23 +146,12 @@ class AIService:
             print(f"Aviso en investigación web: {e}")
         return results
 
-    def attach_image_to_html(self, html_content: str, image_url: Optional[str], topic: str) -> str:
-        """Incrustar la imagen destacada centrada y con estilo en el encabezado de la descripción HTML."""
-        if not image_url:
-            return html_content
-
-        image_header = (
-            f'<div style="text-align: center; margin-bottom: 20px; padding: 10px; background: #f8f9fa; border-radius: 12px; border: 1px solid #e9ecef;">'
-            f'  <img src="{image_url}" alt="{topic}" style="max-width: 100%; max-height: 240px; border-radius: 8px; object-fit: contain; box-shadow: 0 4px 10px rgba(0,0,0,0.12);" />'
-            f'</div>'
-        )
-        return image_header + html_content
-
     def _fallback_categorize_and_enrich(
-        self, texto: str, url: str, research_data: List[Dict[str, str]], image_url: Optional[str], topic: str
+        self, texto: str, url: str, research_data: List[Dict[str, str]], logo_info: Dict[str, str]
     ) -> Dict[str, Any]:
-        """Motor de enriquecimiento avanzado local utilizando datos web reales e imagen de respaldo."""
+        """Motor de enriquecimiento sintético local utilizando el logo corporativo de la empresa."""
         texto_lower = texto.lower()
+        empresa_name = logo_info.get("nombre_empresa", "Empresa Tecnológica")
 
         if any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "call", "convocatoria", "solicítala", "fecha límite", "showcase"]):
             categoria = "Eventos"
@@ -142,54 +176,55 @@ class AIService:
             mercado_info = " ".join([r["snippet"] for r in research_data[:2]])
         else:
             mercado_info = (
-                "Empresas e instituciones líderes en tecnología (como IBM, Amazon, Santander y Microsoft) "
-                "buscan constantemente talento capacitado en estas herramientas clave, lo que incrementa significativamente "
-                "la empleabilidad y las oportunidades profesionales para los estudiantes."
+                f"Empresas e instituciones globales como {empresa_name} buscan activamente talento capacitado en estas herramientas clave, "
+                f"lo que incrementa significativamente la empleabilidad y el desarrollo profesional de los estudiantes."
             )
 
         base_html = (
             f"<h4>🎓 ¿De qué trata este recurso?</h4>"
             f"<p>{texto}</p>"
-            f"<h4>💼 ¿Por qué las empresas y la industria lo solicitan?</h4>"
+            f"<h4>💼 ¿Por qué {empresa_name} y la industria lo solicitan?</h4>"
             f"<p><b>Impacto en el mercado laboral:</b> {mercado_info}</p>"
             f"<h4>🚀 Habilidades clave para potenciar tu CV</h4>"
             f"<ul>"
-            f"  <li><b>Competitividad Internacional:</b> Formación alineada a estándares globales de la industria tecnológica.</li>"
-            f"  <li><b>Perfil de Alto Valor:</b> Diferenciador clave para postulaciones a pasantías, convocatorias y empleos.</li>"
-            f"  <li><b>Acceso Oficial:</b> <a href='{url}' target='_blank'>Enlace al sitio oficial del recurso</a>.</li>"
+            f"  <li><b>Competitividad Internacional:</b> Formación respaldada por la industria global.</li>"
+            f"  <li><b>Perfil de Alto Valor:</b> Diferenciador clave para postulaciones laborales en {empresa_name} y tecnológicas.</li>"
+            f"  <li><b>Acceso Oficial:</b> <a href='{url}' target='_blank'>Enlace a la convocatoria de {empresa_name}</a>.</li>"
             f"</ul>"
             f"<h4>📌 Recomendación del Profesor</h4>"
-            f"<p>Este contenido ha sido seleccionado para complementar tu preparación académica en FES Acatlán. "
+            f"<p>Este contenido de {empresa_name} ha sido seleccionado para complementar tu preparación académica en FES Acatlán. "
             f"Aprovechar estas convocatorias durante tu etapa universitaria potenciará tu perfil laboral al egresar.</p>"
         )
 
-        final_html = self.attach_image_to_html(base_html, image_url, topic)
+        final_html = self.attach_logo_header_to_html(base_html, logo_info)
 
         return {
             "categoria_moodle": categoria,
             "nombre": nombre,
             "descripcion_html": final_html,
             "url": url,
+            "empresa": empresa_name,
         }
 
-    def adapt_linkedin_post(self, texto: str, url: str) -> Dict[str, Any]:
-        """Transforma un post técnico en un recurso universitario enriquecido con IA, Web Research e Imágenes."""
-        # 1. Extraer tema limpio y realizar investigación web e imagen
-        topic = self.extract_search_topic(texto, url)
-        research = self.perform_web_research(topic)
-        image_url = self.search_web_image(topic, url)
+    def adapt_linkedin_post(self, texto: str, url: str, empresa_input: Optional[str] = None) -> Dict[str, Any]:
+        """Transforma un post técnico en un recurso universitario enriquecido con IA, logo de empresa e investigación web."""
+        # 1. Resolver el logo de la empresa especificada o extraída
+        logo_info = self.resolve_company_logo(empresa_input, url, texto)
+        empresa_name = logo_info["nombre_empresa"]
 
+        # 2. Investigación web enfocado en la empresa y el contenido
+        research = self.perform_web_research(texto[:60], empresa_name)
         research_str = "\n".join([f"- {r['title']}: {r['snippet']}" for r in research])
 
         if not self.hf_token:
-            print("HF_TOKEN no configurado. Utilizando motor de investigación sintética con imágenes.")
-            return self._fallback_categorize_and_enrich(texto, url, research, image_url, topic)
+            print("HF_TOKEN no configurado. Utilizando motor sintético con logo corporativo oficial.")
+            return self._fallback_categorize_and_enrich(texto, url, research, logo_info)
 
-        # 2. Probar pool de modelos de pesos abiertos en Hugging Face
+        # 3. Probar pool de modelos de pesos abiertos en Hugging Face
         user_prompt = (
+            f"Empresa Responsable: {empresa_name}\n"
             f"Publicación de origen:\n\"\"\"{texto}\"\"\"\nEnlace: {url}\n\n"
-            f"Tema Clave: {topic}\n\n"
-            f"Datos de Investigación Web sobre Demanda en la Industria:\n{research_str}"
+            f"Datos de Investigación Web sobre {empresa_name} y Mercado:\n{research_str}"
         )
 
         for model_name in HF_MODELS_POOL:
@@ -211,14 +246,15 @@ class AIService:
                 if "categoria_moodle" not in data:
                     data["categoria_moodle"] = "Recursos"
 
-                # Inyectar imagen al inicio del HTML retornado por el LLM
-                data["descripcion_html"] = self.attach_image_to_html(
-                    data.get("descripcion_html", ""), image_url, topic
+                # Inyectar el logo corporativo oficial al inicio del HTML retornado por la IA
+                data["descripcion_html"] = self.attach_logo_header_to_html(
+                    data.get("descripcion_html", ""), logo_info
                 )
-                print(f"✅ Enriquecimiento e imagen integrados exitosamente con modelo '{model_name}'.")
+                data["empresa"] = empresa_name
+                print(f"✅ Enriquecimiento y logo de {empresa_name} integrados exitosamente con modelo '{model_name}'.")
                 return data
             except Exception as e:
                 print(f"Aviso con modelo '{model_name}': {e}. Probando siguiente modelo...")
 
-        # Fallback si todos los modelos HF están saturados
-        return self._fallback_categorize_and_enrich(texto, url, research, image_url, topic)
+        # Fallback si los modelos HF están saturados
+        return self._fallback_categorize_and_enrich(texto, url, research, logo_info)
