@@ -29,9 +29,10 @@ KNOWN_DOMAINS = {
 }
 
 GEMINI_MODELS_POOL = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash"
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash-8b"
 ]
 
 HF_MODELS_POOL = [
@@ -43,55 +44,62 @@ HF_MODELS_POOL = [
 
 GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
 
-Tu objetivo es tomar la información de un recurso/noticia y los hallazgos de INVESTIGACIÓN DE MERCADO, para generar una publicación sumamente enriquecida para Moodle.
+REGLAS DE CLASIFICACIÓN DE CATEGORÍA EN MOODLE:
+1. "Recursos": Si es un CURSO (ej: "Curso Santander English", "Curso de Python", "Aprende...", "Tutorial", "Libro", "Certificación", "Herramienta").
+2. "Eventos": Si es un WEBINAR, conferencia, taller en vivo, showcase con fecha/hora o reunión virtual/presencial.
+3. "Interns & Job Offers": ÚNICAMENTE si es una VACANTE LABORAL DIRECTA / OFERTA DE EMPLEO / CONTRATACIÓN DE PASANTE (ej. "Amazon SDE Intern", "Buscamos Desarrollador Backend").
 
-Debes determinar:
-1. "empresa_detectada": Identifica el nombre o marca de la empresa principal responsable (ej. "IBM", "Santander", "Microsoft", "Google", "Amazon", etc.).
+FEW-SHOT EXAMPLES (EJEMPLOS DE REFERENCIA):
 
-2. "categoria_moodle": Clasifica en una de estas 3 opciones:
-   - "Eventos" (Si es un webinar, taller, beca en vivo, convocatoria con fecha límite o conferencia)
-   - "Interns & Job Offers" (Si es una vacante de empleo, pasantía o convocatoria laboral directa)
-   - "Recursos" (Si es un curso, tutorial, artículo, repositorio o herramienta técnica)
+Ejemplo 1 (CURSO / FORMACIÓN -> RECURSOS):
+Texto: "Curso Santander British Council English online 2026 - 10.000 plazas gratis para mejorar tu inglés."
+Respuesta esperada:
+{
+  "empresa_detectada": "Santander",
+  "categoria_moodle": "Recursos",
+  "nombre": "📚 Curso Gratuito de Inglés Santander British Council 2026",
+  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Programa gratuito de capacitación en idioma inglés ofrecido por British Council y Santander Open Academy.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>El inglés técnico es indispensable para trabajar en empresas multinacionales de tecnología.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Inglés técnico profesional</li><li>Comunicación efectiva</li></ul><h4>📌 Recomendación Académica</h4><p>Aprovecha esta convocatoria gratuita para fortalecer tu CV antes de egresar.</p>"
+}
 
-3. "nombre": Un título irresistible, profesional y motivador (con emoji inicial, máximo 70 caracteres).
+Ejemplo 2 (WEBINAR / SHOWCASE -> EVENTOS):
+Texto: "IBM Z Student Ambassador Showcase on September 9. Join us for lightning talks on LinuxONE."
+Respuesta esperada:
+{
+  "empresa_detectada": "IBM",
+  "categoria_moodle": "Eventos",
+  "nombre": "📅 Showcase Virtual: IBM Z Student Ambassador",
+  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Evento virtual donde embajadores estudiantiles muestran proyectos reales construidos sobre tecnología IBM Z.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>Las instituciones bancarias y financieras globales operan sus sistemas críticos sobre mainframes IBM.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Conocimientos en mainframes e infraestructura empresarial</li></ul><h4>📌 Recomendación Académica</h4><p>Asiste a este evento para conocer cómo otros alumnos colaboran directamente con IBM.</p>"
+}
 
-4. "descripcion_html": Estructura HTML rica y detallada que DEBE INCLUIR:
-   - <h4>🎓 ¿De qué trata este recurso?</h4> <p>Resumen claro del contenido y sus características principales.</p>
-   - <h4>💼 ¿Por qué las empresas y la industria lo solicitan?</h4> <p>Explicación respaldada por por qué esta empresa u otras gigantes tecnológicas buscan estas habilidades, impacto en salarios u oportunidades internacionales.</p>
-   - <h4>🚀 Habilidades clave para tu CV</h4> <ul><li>Habilidad 1</li><li>Habilidad 2</li><li>Habilidad 3</li></ul>
-   - <h4>📌 Recomendación Académica</h4> <p>Mensaje motivacional del profesor para los alumnos de MAC.</p>
+Ejemplo 3 (VACANTE LABORAL / CONTRATACIÓN -> INTERNS & JOB OFFERS):
+Texto: "Amazon is hiring Software Development Engineer (SDE) Interns 2026. Qualifications: C++, Java or Python."
+Respuesta esperada:
+{
+  "empresa_detectada": "Amazon",
+  "categoria_moodle": "Interns & Job Offers",
+  "nombre": "💼 Vacante SDE Intern 2026 - Amazon",
+  "descripcion_html": "<h4>💼 Detalles de la Vacante / Convocatoria (Amazon)</h4><p>Oportunidad de pasantía laboral a tiempo completo para estudiantes de computación en Amazon.</p><h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4><ul><li><b>¿Dominas Java, Python o C++?</b> Evalúa tu nivel práctico de programación.</li></ul><h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4><ul><li><b>Paso 1:</b> Repasa estructuras de datos y algoritmos.</li></ul><h4>📌 Recomendación del Profesor</h4><p>Aplica hoy mismo a esta vacante en Amazon.</p>"
+}
 
-Responde ÚNICAMENTE un JSON válido con esta estructura exacta.
+Responde ÚNICAMENTE un JSON válido con la estructura del ejemplo.
 """
 
 JOB_OFFER_SYSTEM_PROMPT = """Eres un mentor de reclutamiento técnico para estudiantes universitarios de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
 
-Tu objetivo es analizar una Oferta de Empleo / Pasantía / Vacante (Job Post) y crear una publicación en Moodle orientada a la AUTOEVALUACIÓN Y ROADMAP DE APRENDIZAJE del estudiante.
+Tu objetivo es analizar una Oferta de Empleo / Pasantía Laboral / Vacante (Job Post) y crear una publicación en Moodle orientada a la AUTOEVALUACIÓN Y ROADMAP DE APRENDIZAJE del estudiante.
 
-Debes determinar:
-1. "empresa_detectada": Nombre de la empresa convocante (ej. "Amazon", "Google", "IBM", "Mercado Libre", etc.).
+REGLAS DE CLASIFICACIÓN:
+- "categoria_moodle": "Interns & Job Offers"
 
-2. "categoria_moodle": "Interns & Job Offers"
-
-3. "nombre": Título motivador y profesional con emoji (ej. "💼 Vacante Backend Developer - Amazon (Pasantía)").
-
-4. "descripcion_html": Estructura HTML orientada a AUTOEVALUACIÓN Y ROADMAP que DEBE INCLUIR:
-   - <h4>💼 Detalles de la Vacante / Convocatoria</h4> <p>Resumen del puesto, empresa y los requisitos principales que buscan en el candidato.</p>
-   - <h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4>
-     <p>Responde mentalmente estas preguntas para medir si estás listo para postularte hoy:</p>
-     <ul>
-       <li><b>¿Dominas...?</b> [Pregunta sobre lenguaje o tecnología clave requerida]</li>
-       <li><b>¿Tienes experiencia en...?</b> [Pregunta sobre arquitecturas, herramientas o bases de datos]</li>
-       <li><b>¿Conoces...?</b> [Pregunta sobre metodologías, lógica de programación o inglés]</li>
-     </ul>
-   - <h4>MAPA DE ESTUDIO / ROADMAP</h4> <h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4>
-     <p>Si no cumples con todos los requisitos aún, enfócate en estudiar estos temas clave para esta y futuras vacantes:</p>
-     <ul>
-       <li><b>Paso 1 - Fundamentos:</b> [Tema técnico principal a estudiar]</li>
-       <li><b>Paso 2 - Herramientas Prácticas:</b> [Framework o herramienta técnica a practicar]</li>
-       <li><b>Paso 3 - Proyectos / CV:</b> [Consejo para construir un proyecto de portafolio relevante]</li>
-     </ul>
-   - <h4>📌 Recomendación del Profesor</h4> <p>Mensaje motivacional para no tener miedo a postularse e intentar la vacante.</p>
+FEW-SHOT EXAMPLE:
+Texto: "We are hiring Software Development Engineer Interns at Amazon. Requirements: Data structures, C++, Python or Java."
+Respuesta esperada:
+{
+  "empresa_detectada": "Amazon",
+  "categoria_moodle": "Interns & Job Offers",
+  "nombre": "💼 Vacante SDE Intern 2026 - Amazon",
+  "descripcion_html": "<h4>💼 Detalles de la Vacante / Convocatoria (Amazon)</h4><p>Puesto de pasantía técnica para desarrollo de software en la nube de Amazon.</p><h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4><ul><li><b>¿Dominas lenguajes como Python, Java o C++?</b> Evalúa tus conocimientos en POO.</li><li><b>¿Comprendes estructuras de datos clave?</b> Verifica si puedes implementar listas, árboles y grafos.</li></ul><h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4><ul><li><b>Paso 1 - Algoritmos:</b> Resuelve problemas de complejidad algorítmica.</li><li><b>Paso 2 - Herramientas:</b> Practica con Git, Docker y servicios AWS.</li></ul><h4>📌 Recomendación del Profesor</h4><p>No dudes en enviar tu solicitud a Amazon para ganar valiosa experiencia en entrevistas técnicas.</p>"
+}
 
 Responde ÚNICAMENTE un JSON válido con esa estructura exacta.
 """
@@ -266,7 +274,7 @@ class AIService:
     def attach_header_to_html(
         self, html_content: str, logo_info: Dict[str, str], linkedin_url: Optional[str] = None
     ) -> str:
-        """Inyceta el iframe de LinkedIn o el logo Base64 de la empresa."""
+        """Inyecta el iframe de LinkedIn o el logo Base64 de la empresa."""
         iframe_header = self.parse_linkedin_iframe(linkedin_url)
         if iframe_header:
             print("📌 Encabezado: Publicación de LinkedIn incrustada (Iframe).")
@@ -313,17 +321,15 @@ class AIService:
         """Motor de enriquecimiento sintético local."""
         texto_lower = texto.lower()
         empresa_name = logo_info.get("nombre_empresa", "Empresa Tecnológica")
-        is_job_post = any(w in texto_lower for w in ["job", "intern", "vacante", "empleo", "hiring", "contratando", "postula", "becario", "pasantía", "oferta", "reclutamiento"])
 
-        lineas = [l.strip() for l in texto.split("\n") if l.strip()]
-        titulo_raw = lineas[0] if lineas else texto[:50]
-        titulo_clean = re.sub(r'^[^\w]+', '', titulo_raw)
-        if len(titulo_clean) > 60:
-            titulo_clean = titulo_clean[:57] + "..."
+        # Criterio estricto de clasificación en fallback local
+        is_course = any(w in texto_lower for w in ["curso", "course", "aprender", "aprender inglés", "idiomas", "beca de estudio", "tutorial", "capacitación"])
+        is_event = any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "showcase", "hackathon"])
+        is_job = any(w in texto_lower for w in ["we are hiring", "job description", "vacante", "empleo", "contratando", "job offer", "sde intern", "puesto de trabajo"]) and not is_course
 
-        if is_job_post:
+        if is_job:
             categoria = "Interns & Job Offers"
-            nombre = f"💼 {empresa_name}: {titulo_clean}"
+            nombre = f"💼 {empresa_name}: Vacante Laboral"
             base_html = (
                 f"<h4>💼 Detalles de la Vacante / Convocatoria ({empresa_name})</h4><p>{texto}</p>"
                 f"<h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4>"
@@ -335,16 +341,25 @@ class AIService:
                 f"<h4>📌 Recomendación del Profesor</h4>"
                 f"<p>¡No tengas miedo de postularte a {empresa_name}! Ganarás valiosa experiencia laboral.</p>"
             )
-        else:
-            categoria = "Eventos" if any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "call", "convocatoria", "solicítala", "fecha límite", "showcase"]) else "Recursos"
-            emoji = "📅" if categoria == "Eventos" else "📚"
-            nombre = f"{emoji} {titulo_clean}"
-            mercado_info = " ".join([r["snippet"] for r in research_data[:2]]) if research_data else f"Empresas como {empresa_name} buscan este perfil."
+        elif is_event:
+            categoria = "Eventos"
+            lineas = [l.strip() for l in texto.split("\n") if l.strip()]
+            titulo_clean = re.sub(r'^[^\w]+', '', lineas[0]) if lineas else texto[:40]
+            nombre = f"📅 {titulo_clean[:55]}"
             base_html = (
                 f"<h4>🎓 ¿De qué trata este recurso?</h4><p>{texto}</p>"
-                f"<h4>💼 ¿Por qué {empresa_name} y la industria lo solicitan?</h4><p>{mercado_info}</p>"
-                f"<h4>🚀 Habilidades clave para tu CV</h4><ul><li>Perfil de Alto Valor en {empresa_name}</li></ul>"
-                f"<h4>📌 Recomendación del Profesor</h4><p>Excelente complemento para tu perfil universitario.</p>"
+                f"<h4>💼 ¿Por qué {empresa_name} lo ofrece?</h4><p>Espacio de interacción directa con líderes de la industria.</p>"
+                f"<h4>📌 Recomendación del Profesor</h4><p>Asiste a este evento para enriquecer tu aprendizaje.</p>"
+            )
+        else:
+            categoria = "Recursos"
+            lineas = [l.strip() for l in texto.split("\n") if l.strip()]
+            titulo_clean = re.sub(r'^[^\w]+', '', lineas[0]) if lineas else texto[:40]
+            nombre = f"📚 {titulo_clean[:55]}"
+            base_html = (
+                f"<h4>🎓 ¿De qué trata este recurso?</h4><p>{texto}</p>"
+                f"<h4>💼 ¿Por me beneficia como estudiante?</h4><p>Fortalece tus habilidades técnicas con contenido oficial de {empresa_name}.</p>"
+                f"<h4>📌 Recomendación del Profesor</h4><p>Excelente recurso para profundizar en tu carrera.</p>"
             )
 
         final_html = self.attach_header_to_html(base_html, logo_info, linkedin_url)
@@ -360,8 +375,8 @@ class AIService:
         self, texto: str, url: str, empresa_input: Optional[str] = None, linkedin_url: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Jerarquía de Ejecución:
-        1. 🥇 Google AI Studio Gemini API (gemini-2.5-flash / gemini-2.0-flash / gemini-1.5-flash)
+        Jerarquía de Ejecución con Few-Shot Prompts y Criterio Estricto:
+        1. 🥇 Google AI Studio Gemini API (gemini-1.5-flash / gemini-1.5-pro / gemini-2.0-flash-exp)
         2. 🥈 Hugging Face Pool (Qwen 72B / Llama 70B / Qwen Coder 32B / Mistral Nemo)
         3. 🥉 Motor Sintético Local
         """
@@ -372,7 +387,14 @@ class AIService:
         research_str = "\n".join([f"- {r['title']}: {r['snippet']}" for r in research])
 
         texto_lower = texto.lower()
-        is_job_post = any(w in texto_lower for w in ["job", "intern", "vacante", "empleo", "hiring", "contratando", "postula", "becario", "pasantía", "oferta", "reclutamiento"])
+        is_course = any(w in texto_lower for w in ["curso", "course", "aprender", "aprender inglés", "idiomas", "beca de estudio", "tutorial", "capacitación"])
+        is_job_post = (
+            any(w in texto_lower for w in [
+                "we are hiring", "job description", "vacante de empleo",
+                "oferta de empleo", "hiring software", "job vacancy",
+                "sde intern", "puesto de trabajo", "postúlate a la vacante"
+            ]) and not is_course
+        )
 
         active_system_prompt = JOB_OFFER_SYSTEM_PROMPT if is_job_post else GENERAL_SYSTEM_PROMPT
         if is_job_post:
@@ -390,6 +412,9 @@ class AIService:
             gemini_res["url"] = url
             if is_job_post:
                 gemini_res["categoria_moodle"] = "Interns & Job Offers"
+            elif is_course and gemini_res.get("categoria_moodle") == "Interns & Job Offers":
+                gemini_res["categoria_moodle"] = "Recursos"
+
             gemini_res["descripcion_html"] = self.attach_header_to_html(
                 gemini_res.get("descripcion_html", ""), logo_info, linkedin_url
             )
@@ -406,7 +431,7 @@ class AIService:
                         {"role": "system", "content": active_system_prompt},
                         {"role": "user", "content": user_prompt},
                     ]
-                    res = client.chat_completion(messages=messages, max_tokens=1100, temperature=0.3)
+                    res = client.chat_completion(messages=messages, max_tokens=1100, temperature=0.2)
                     raw = res.choices[0].message.content.strip()
 
                     if "```" in raw:
@@ -428,6 +453,8 @@ class AIService:
                     data["url"] = url
                     if is_job_post:
                         data["categoria_moodle"] = "Interns & Job Offers"
+                    elif is_course and data.get("categoria_moodle") == "Interns & Job Offers":
+                        data["categoria_moodle"] = "Recursos"
 
                     data["descripcion_html"] = self.attach_header_to_html(
                         data.get("descripcion_html", ""), logo_info, linkedin_url
