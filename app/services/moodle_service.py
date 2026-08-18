@@ -1,7 +1,8 @@
 import os
 import sys
+import subprocess
 from typing import Dict, Any, List, Union
-from playwright.sync_api import sync_playwright, Page, BrowserContext
+from playwright.sync_api import sync_playwright, Page, BrowserContext, Error as PlaywrightError
 from app.config import config
 
 
@@ -40,7 +41,7 @@ class MoodleService:
     ) -> None:
         """
         Crea un módulo de recurso URL en la pestaña Recursos y sección del curso especificado.
-        Rena los campos: Nombre, URL externa, Descripción enriquecida por la IA y
+        Rellena los campos: Nombre, URL externa, Descripción enriquecida por la IA y
         marca la casilla 'Mostrar descripción en la página del curso'.
         """
         seccion = item.get("seccion", 0)
@@ -138,6 +139,17 @@ class MoodleService:
             return [c.strip() for c in target.split(",") if c.strip()]
         return [str(target)]
 
+    def launch_browser_safely(self, p):
+        """Intenta lanzar el navegador Chromium. Si falta en Codespaces/Linux, lo instala automáticamente."""
+        try:
+            return p.chromium.launch(headless=True)
+        except Exception as e:
+            if "Executable doesn't exist" in str(e) or "playwright install" in str(e):
+                print("Binarios de Chromium no encontrados. Instalando automáticamente en el entorno...")
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+                return p.chromium.launch(headless=True)
+            raise e
+
     def publish_item(self, item: Dict[str, Any], course_id: Any = None) -> List[str]:
         """
         Publica un ítem en uno o varios cursos de manera secuencial (uno tras otro).
@@ -146,7 +158,7 @@ class MoodleService:
         published_courses = []
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = self.launch_browser_safely(p)
 
             if os.path.exists(self.session_file):
                 context = browser.new_context(storage_state=self.session_file)
