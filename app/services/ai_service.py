@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import base64
 import httpx
 from typing import Dict, Any, List, Optional
@@ -26,6 +27,12 @@ KNOWN_DOMAINS = {
     "intel": "intel.com",
     "github": "github.com",
 }
+
+GEMINI_MODELS_POOL = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash"
+]
 
 HF_MODELS_POOL = [
     "Qwen/Qwen2.5-72B-Instruct",
@@ -77,7 +84,7 @@ Debes determinar:
        <li><b>¿Tienes experiencia en...?</b> [Pregunta sobre arquitecturas, herramientas o bases de datos]</li>
        <li><b>¿Conoces...?</b> [Pregunta sobre metodologías, lógica de programación o inglés]</li>
      </ul>
-   - <h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4>
+   - <h4>MAPA DE ESTUDIO / ROADMAP</h4> <h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4>
      <p>Si no cumples con todos los requisitos aún, enfócate en estudiar estos temas clave para esta y futuras vacantes:</p>
      <ul>
        <li><b>Paso 1 - Fundamentos:</b> [Tema técnico principal a estudiar]</li>
@@ -92,7 +99,67 @@ Responde ÚNICAMENTE un JSON válido con esa estructura exacta.
 
 class AIService:
     def __init__(self):
+        self.gemini_key = config.GEMINI_API_KEY
         self.hf_token = config.HF_TOKEN
+        self.last_gemini_call = 0.0
+
+    def enforce_gemini_rate_limit(self):
+        """Pausa estratégica de 4.5 segundos para no exceder jamás el límite estricto de 15 RPM en Gemini."""
+        now = time.time()
+        elapsed = now - self.last_gemini_call
+        if elapsed < 4.5:
+            sleep_time = 4.5 - elapsed
+            print(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...")
+            time.sleep(sleep_time)
+        self.last_gemini_call = time.time()
+
+    def call_gemini_api(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any]]:
+        """Llama a la API de Google AI Studio Gemini con garantía de JSON estructurado y control estricto de cuota."""
+        if not self.gemini_key or self.gemini_key == "tu_gemini_api_key_aqui":
+            return None
+
+        self.enforce_gemini_rate_limit()
+
+        for model_name in GEMINI_MODELS_POOL:
+            try:
+                print(f"🌟 Solicitando enriquecimiento a Google AI Studio: '{model_name}'...")
+                endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.gemini_key}"
+                
+                payload = {
+                    "system_instruction": {
+                        "parts": [{"text": system_prompt}]
+                    },
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": user_prompt}]
+                        }
+                    ],
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        "temperature": 0.2,
+                        "maxOutputTokens": 1100
+                    }
+                }
+
+                with httpx.Client(timeout=15.0) as client:
+                    response = client.post(endpoint, json=payload)
+                    if response.status_code == 200:
+                        res_data = response.json()
+                        candidates = res_data.get("candidates", [])
+                        if candidates:
+                            raw_text = candidates[0]["content"]["parts"][0]["text"]
+                            parsed = json.loads(raw_text, strict=False)
+                            print(f"✅ Respuesta exitosa de Google AI Studio Gemini ('{model_name}').")
+                            return parsed
+                    elif response.status_code == 429:
+                        print(f"⚠️ Rate limit 429 alcanzado en Gemini ('{model_name}'). Probando siguiente modelo...")
+                    else:
+                        print(f"Aviso en Gemini ('{model_name}'): HTTP {response.status_code} - {response.text[:150]}")
+            except Exception as e:
+                print(f"Aviso al consultar Google AI Studio ({model_name}): {e}")
+
+        return None
 
     def parse_linkedin_iframe(self, linkedin_url: Optional[str]) -> Optional[str]:
         """Transforma una URL de publicación de LinkedIn en un iframe incrustado oficial."""
@@ -199,10 +266,7 @@ class AIService:
     def attach_header_to_html(
         self, html_content: str, logo_info: Dict[str, str], linkedin_url: Optional[str] = None
     ) -> str:
-        """
-        Si existe linkedin_url, inyecta el iframe de la publicación de LinkedIn.
-        Si no existe, inyecta la tarjeta con el logo de la empresa en Base64.
-        """
+        """Inyceta el iframe de LinkedIn o el logo Base64 de la empresa."""
         iframe_header = self.parse_linkedin_iframe(linkedin_url)
         if iframe_header:
             print("📌 Encabezado: Publicación de LinkedIn incrustada (Iframe).")
@@ -246,10 +310,9 @@ class AIService:
     def _fallback_categorize_and_enrich(
         self, texto: str, url: str, research_data: List[Dict[str, str]], logo_info: Dict[str, str], linkedin_url: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Motor de enriquecimiento sintético local con lógica diferenciada para Ofertas de Empleo vs Recursos/Eventos."""
+        """Motor de enriquecimiento sintético local."""
         texto_lower = texto.lower()
         empresa_name = logo_info.get("nombre_empresa", "Empresa Tecnológica")
-
         is_job_post = any(w in texto_lower for w in ["job", "intern", "vacante", "empleo", "hiring", "contratando", "postula", "becario", "pasantía", "oferta", "reclutamiento"])
 
         lineas = [l.strip() for l in texto.split("\n") if l.strip()]
@@ -261,64 +324,30 @@ class AIService:
         if is_job_post:
             categoria = "Interns & Job Offers"
             nombre = f"💼 {empresa_name}: {titulo_clean}"
-
             base_html = (
-                f"<h4>💼 Detalles de la Vacante / Convocatoria ({empresa_name})</h4>"
-                f"<p>{texto}</p>"
+                f"<h4>💼 Detalles de la Vacante / Convocatoria ({empresa_name})</h4><p>{texto}</p>"
                 f"<h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4>"
-                f"<p>Antes de postularte, evalúa honestamente tu nivel actual respondiendo estas preguntas:</p>"
-                f"<ul>"
-                f"  <li><b>¿Dominas los lenguajes principales solicitados?</b> Evalúa tus conocimientos prácticos en programación orientada a objetos o estructuras de datos.</li>"
-                f"  <li><b>¿Tienes proyectos en GitHub que respalden tus conocimientos?</b> Verifica si tus repositorios demuestran las tecnologías clave que busca {empresa_name}.</li>"
-                f"  <li><b>¿Puedes comunicarte técnicamente en inglés?</b> Revisa tu capacidad para redactar documentación o explicar tu código en inglés.</li>"
-                f"</ul>"
+                f"<ul><li><b>¿Dominas los lenguajes principales?</b> Evalúa tus conocimientos prácticos.</li>"
+                f"<li><b>¿Tienes proyectos en GitHub?</b> Verifica tus repositorios clave.</li></ul>"
                 f"<h4>🗺️ Roadmap de Estudio Exprès (¿Qué te falta aprender?)</h4>"
-                f"<p>Si aún no cumples con el 100% de los requisitos, enfócate en fortalecer estos pilares clave:</p>"
-                f"<ul>"
-                f"  <li><b>Paso 1 - Fundamentos Técnicos:</b> Refuerza el lenguaje de programación principal y patrones de diseño.</li>"
-                f"  <li><b>Paso 2 - Herramientas de la Industria:</b> Practica con Git, Docker, bases de datos SQL/NoSQL y APIs REST.</li>"
-                f"  <li><b>Paso 3 - Proyecto de Portafolio:</b> Desarrolla una aplicación pequeña que resuelva un problema real usando la tecnología solicitada.</li>"
-                f"</ul>"
+                f"<ul><li><b>Paso 1:</b> Refuerza el lenguaje de programación principal.</li>"
+                f"<li><b>Paso 2:</b> Practica con Git, Docker y bases de datos.</li></ul>"
                 f"<h4>📌 Recomendación del Profesor</h4>"
-                f"<p>¡No tengas miedo de postularte a {empresa_name}! Incluso si sientes que te falta aprender un tema, el proceso de entrevista te dará valiosa experiencia en la industria real.</p>"
+                f"<p>¡No tengas miedo de postularte a {empresa_name}! Ganarás valiosa experiencia laboral.</p>"
             )
         else:
-            if any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "call", "convocatoria", "solicítala", "fecha límite", "showcase"]):
-                categoria = "Eventos"
-                emoji = "📅"
-            else:
-                categoria = "Recursos"
-                emoji = "📚"
-
+            categoria = "Eventos" if any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "call", "convocatoria", "solicítala", "fecha límite", "showcase"]) else "Recursos"
+            emoji = "📅" if categoria == "Eventos" else "📚"
             nombre = f"{emoji} {titulo_clean}"
-
-            mercado_info = ""
-            if research_data:
-                mercado_info = " ".join([r["snippet"] for r in research_data[:2]])
-            else:
-                mercado_info = (
-                    f"Empresas e instituciones globales como {empresa_name} buscan activamente talento capacitado en estas herramientas clave, "
-                    f"lo que incrementa significativamente la empleabilidad y el desarrollo profesional de los estudiantes."
-                )
-
+            mercado_info = " ".join([r["snippet"] for r in research_data[:2]]) if research_data else f"Empresas como {empresa_name} buscan este perfil."
             base_html = (
-                f"<h4>🎓 ¿De qué trata este recurso?</h4>"
-                f"<p>{texto}</p>"
-                f"<h4>💼 ¿Por qué {empresa_name} y la industria lo solicitan?</h4>"
-                f"<p><b>Impacto en el mercado laboral:</b> {mercado_info}</p>"
-                f"<h4>🚀 Habilidades clave para potenciar tu CV</h4>"
-                f"<ul>"
-                f"  <li><b>Competitividad Internacional:</b> Formación respaldada por la industria global.</li>"
-                f"  <li><b>Perfil de Alto Valor:</b> Diferenciador clave para postulaciones laborales en {empresa_name} y tecnológicas.</li>"
-                f"  <li><b>Registro / Acceso Oficial:</b> <a href='{url}' target='_blank'>Haz clic aquí para ingresar al registro directo</a>.</li>"
-                f"</ul>"
-                f"<h4>📌 Recomendación del Profesor</h4>"
-                f"<p>Este contenido de {empresa_name} ha sido seleccionado para complementar tu preparación académica en FES Acatlán. "
-                f"Aprovechar estas convocatorias durante tu etapa universitaria potenciará tu perfil laboral al egresar.</p>"
+                f"<h4>🎓 ¿De qué trata este recurso?</h4><p>{texto}</p>"
+                f"<h4>💼 ¿Por qué {empresa_name} y la industria lo solicitan?</h4><p>{mercado_info}</p>"
+                f"<h4>🚀 Habilidades clave para tu CV</h4><ul><li>Perfil de Alto Valor en {empresa_name}</li></ul>"
+                f"<h4>📌 Recomendación del Profesor</h4><p>Excelente complemento para tu perfil universitario.</p>"
             )
 
         final_html = self.attach_header_to_html(base_html, logo_info, linkedin_url)
-
         return {
             "categoria_moodle": categoria,
             "nombre": nombre,
@@ -330,14 +359,18 @@ class AIService:
     def adapt_linkedin_post(
         self, texto: str, url: str, empresa_input: Optional[str] = None, linkedin_url: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Transforma un post técnico en un recurso universitario enriquecido con IA, iframe/logo e investigación web."""
+        """
+        Jerarquía de Ejecución:
+        1. 🥇 Google AI Studio Gemini API (gemini-2.5-flash / gemini-2.0-flash / gemini-1.5-flash)
+        2. 🥈 Hugging Face Pool (Qwen 72B / Llama 70B / Qwen Coder 32B / Mistral Nemo)
+        3. 🥉 Motor Sintético Local
+        """
         logo_info = self.resolve_company_logo(empresa_input, url, texto)
         empresa_name = logo_info["nombre_empresa"]
 
         research = self.perform_web_research(texto[:60], empresa_name)
         research_str = "\n".join([f"- {r['title']}: {r['snippet']}" for r in research])
 
-        # Determinar si el post corresponde a una oferta de empleo para seleccionar el System Prompt óptimo
         texto_lower = texto.lower()
         is_job_post = any(w in texto_lower for w in ["job", "intern", "vacante", "empleo", "hiring", "contratando", "postula", "becario", "pasantía", "oferta", "reclutamiento"])
 
@@ -345,53 +378,66 @@ class AIService:
         if is_job_post:
             print("💼 Detectada Oferta de Empleo / Job Post. Utilizando Prompt Especializado de Autoevaluación y Roadmap.")
 
-        if not self.hf_token:
-            print("HF_TOKEN no configurado. Utilizando motor sintético con plantilla adaptativa.")
-            return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url)
-
         user_prompt = (
             f"Empresa Convocante: {empresa_name}\n"
             f"Publicación de origen:\n\"\"\"{texto}\"\"\"\nEnlace de Registro / Postulación: {url}\n\n"
             f"Datos de Investigación Web sobre {empresa_name} y Mercado:\n{research_str}"
         )
 
-        for model_name in HF_MODELS_POOL:
-            try:
-                print(f"🤖 Solicitando enriquecimiento a modelo HF: '{model_name}'...")
-                client = InferenceClient(model=model_name, token=self.hf_token)
-                messages = [
-                    {"role": "system", "content": active_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ]
-                res = client.chat_completion(messages=messages, max_tokens=1100, temperature=0.3)
-                raw = res.choices[0].message.content.strip()
+        # 1. 🥇 PRIORIDAD 1: Google AI Studio Gemini API
+        gemini_res = self.call_gemini_api(active_system_prompt, user_prompt)
+        if gemini_res:
+            gemini_res["url"] = url
+            if is_job_post:
+                gemini_res["categoria_moodle"] = "Interns & Job Offers"
+            gemini_res["descripcion_html"] = self.attach_header_to_html(
+                gemini_res.get("descripcion_html", ""), logo_info, linkedin_url
+            )
+            gemini_res["empresa"] = empresa_name
+            return gemini_res
 
-                if "```" in raw:
-                    parts = raw.split("```")
-                    for p in parts:
-                        p_str = p.strip()
-                        if p_str.startswith("json"):
-                            p_str = p_str[4:].strip()
-                        if p_str.startswith("{") and p_str.endswith("}"):
-                            raw = p_str
-                            break
-
+        # 2. 🥈 PRIORIDAD 2: Hugging Face Inference API
+        if self.hf_token and self.hf_token != "hf_tu_token_aqui":
+            for model_name in HF_MODELS_POOL:
                 try:
-                    data = json.loads(raw, strict=False)
-                except Exception:
-                    cleaned_raw = re.sub(r'[\r\n]+', r'\\n', raw)
-                    data = json.loads(cleaned_raw, strict=False)
-                data["url"] = url
-                if is_job_post:
-                    data["categoria_moodle"] = "Interns & Job Offers"
+                    print(f"🤖 Solicitando enriquecimiento a Hugging Face: '{model_name}'...")
+                    client = InferenceClient(model=model_name, token=self.hf_token)
+                    messages = [
+                        {"role": "system", "content": active_system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ]
+                    res = client.chat_completion(messages=messages, max_tokens=1100, temperature=0.3)
+                    raw = res.choices[0].message.content.strip()
 
-                data["descripcion_html"] = self.attach_header_to_html(
-                    data.get("descripcion_html", ""), logo_info, linkedin_url
-                )
-                data["empresa"] = empresa_name
-                print(f"✅ Enriquecimiento e incrustación integrados exitosamente con modelo '{model_name}'.")
-                return data
-            except Exception as e:
-                print(f"Aviso con modelo '{model_name}': {e}. Probando siguiente modelo...")
+                    if "```" in raw:
+                        parts = raw.split("```")
+                        for p in parts:
+                            p_str = p.strip()
+                            if p_str.startswith("json"):
+                                p_str = p_str[4:].strip()
+                            if p_str.startswith("{") and p_str.endswith("}"):
+                                raw = p_str
+                                break
 
+                    try:
+                        data = json.loads(raw, strict=False)
+                    except Exception:
+                        cleaned_raw = re.sub(r'[\r\n]+', r'\\n', raw)
+                        data = json.loads(cleaned_raw, strict=False)
+
+                    data["url"] = url
+                    if is_job_post:
+                        data["categoria_moodle"] = "Interns & Job Offers"
+
+                    data["descripcion_html"] = self.attach_header_to_html(
+                        data.get("descripcion_html", ""), logo_info, linkedin_url
+                    )
+                    data["empresa"] = empresa_name
+                    print(f"✅ Enriquecimiento exitoso con modelo Hugging Face '{model_name}'.")
+                    return data
+                except Exception as e:
+                    print(f"Aviso con modelo HF '{model_name}': {e}. Probando siguiente...")
+
+        # 3. 🥉 PRIORIDAD 3: Motor Sintético Local
+        print("💡 Utilizando Motor Sintético Local de Respaldo.")
         return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url)

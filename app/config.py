@@ -13,6 +13,7 @@ class Config:
     RAW_COURSE_ID: str = os.getenv("MOODLE_COURSE_ID", "22841,22842")
     
     API_SECRET: str = os.getenv("API_SECRET", "mi_clave_secreta")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     HF_TOKEN: str = os.getenv("HF_TOKEN", "")
     NGROK_AUTHTOKEN: str = os.getenv("NGROK_AUTHTOKEN", "")
     
