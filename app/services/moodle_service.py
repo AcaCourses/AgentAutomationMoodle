@@ -488,6 +488,8 @@ class MoodleService:
                 context = browser.new_context(user_agent=ua)
 
             page = context.new_page()
+            # 🚀 Opción A: Bloqueo de assets pesados para acelerar Moodle y reducir consumo de RAM en Render
+            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
 
             try:
                 self._log("🔑 Autenticando en Moodle SEA Acatlán...", "info", log_cb)
