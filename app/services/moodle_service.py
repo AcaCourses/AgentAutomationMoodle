@@ -246,21 +246,49 @@ class MoodleService:
             self.login_and_save_session(page, context)
             page.goto(url_crear, wait_until="domcontentloaded")
 
-        # 3. Llenar Nombre
+        # 3. Llenar Nombre con selector robusto y fallback JS
         try:
-            page.wait_for_selector("#id_name", timeout=12000)
-            page.fill("#id_name", nombre)
+            name_input = page.locator('input[name="name"], #id_name, input#id_name').first
+            name_input.wait_for(state="attached", timeout=12000)
+            name_input.fill(nombre)
             print(f"Campo Nombre completado: '{nombre}'")
         except Exception as e:
-            screenshot_path = self.take_debug_screenshot(page, f"error_nombre_curso_{course_id}.png")
-            raise TimeoutError(
-                f"No se encontró el campo '#id_name' en Moodle (Página actual: '{page.title()}'). "
-                f"Captura guardada en: {screenshot_path}"
-            )
+            try:
+                page.evaluate("""
+                    (val) => {
+                        const el = document.querySelector('input[name="name"], #id_name');
+                        if (el) {
+                            el.value = val;
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+                """, nombre)
+                print(f"Campo Nombre completado vía JS fallback: '{nombre}'")
+            except Exception:
+                screenshot_path = self.take_debug_screenshot(page, f"error_nombre_curso_{course_id}.png")
+                raise TimeoutError(
+                    f"No se encontró el campo '#id_name' en Moodle (Página actual: '{page.title()}'). "
+                    f"Captura guardada en: {screenshot_path}"
+                )
 
-        # 4. Llenar URL externa
-        page.fill("#id_externalurl", url)
-        print(f"Campo URL externa completado: '{url}'")
+        # 4. Llenar URL externa con selector robusto y fallback JS
+        try:
+            url_input = page.locator('input[name="externalurl"], #id_externalurl, input#id_externalurl').first
+            url_input.fill(url)
+            print(f"Campo URL externa completado: '{url}'")
+        except Exception:
+            page.evaluate("""
+                (val) => {
+                    const el = document.querySelector('input[name="externalurl"], #id_externalurl');
+                    if (el) {
+                        el.value = val;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+            """, url)
+            print(f"Campo URL externa completado vía JS fallback: '{url}'")
 
         # 5. Llenar Descripción enriquecida esperando a TinyMCE
         if descripcion_html:
@@ -498,8 +526,8 @@ class MoodleService:
                 context = browser.new_context(user_agent=ua)
 
             page = context.new_page()
-            # 🚀 Opción A: Bloqueo de assets pesados para acelerar Moodle y reducir consumo de RAM en Render
-            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
+            # 🚀 Opción A: Bloqueo de imágenes y multimedia para acelerar Moodle y ahorrar RAM sin afectar scripts/fuentes del tema
+            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media"] else route.continue_())
 
             try:
                 self._log("🔑 Autenticando en Moodle SEA Acatlán...", "info", log_cb)
