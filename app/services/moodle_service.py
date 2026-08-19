@@ -41,7 +41,10 @@ class MoodleService:
 
     def login_and_save_session(self, page: Page, context: BrowserContext) -> None:
         """Autentica al usuario en Moodle SEA Acatlán y guarda la sesión."""
-        print(f"Iniciando sesión en SEA Acatlán ({self.base_url}/login/index.php)...")
+        masked_user = f"{self.username[:2]}***{self.username[-2:]}" if len(self.username) > 4 else "***"
+        pass_len = len(self.password)
+        print(f"🔑 Intentando iniciar sesión en SEA Acatlán ({self.base_url}/login/index.php)...")
+        print(f"👤 Usuario configurado: '{masked_user}' (longitud: {len(self.username)}) | Contraseña longitud: {pass_len}")
         page.goto(f"{self.base_url}/login/index.php", wait_until="domcontentloaded")
 
         page.fill("#username", self.username)
@@ -62,7 +65,7 @@ class MoodleService:
             err_text = err_elem.first.inner_text().strip() if err_elem.count() > 0 else ""
             self.take_debug_screenshot(page, "error_login.png")
             detail = f" (Respuesta de Moodle: '{err_text}')" if err_text else ""
-            raise ValueError(f"Credenciales inválidas o error de inicio de sesión en Moodle{detail}. Revisa MOODLE_USER y MOODLE_PASS en el panel de Render.")
+            raise ValueError(f"Credenciales inválidas o error de inicio de sesión en Moodle{detail}. Usuario intentado: '{masked_user}' (longitud {len(self.username)}), Contraseña longitud: {pass_len}. Revisa MOODLE_USER y MOODLE_PASS en el panel de Render.")
 
         context.storage_state(path=self.session_file)
         print("Sesión guardada exitosamente en session.json.")
