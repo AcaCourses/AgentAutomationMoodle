@@ -6,8 +6,8 @@ load_dotenv()
 
 class Config:
     MOODLE_BASE_URL: str = os.getenv("MOODLE_BASE_URL", "https://sea.acatlan.unam.mx").rstrip("/")
-    MOODLE_USER: str = os.getenv("MOODLE_USER", "")
-    MOODLE_PASS: str = os.getenv("MOODLE_PASS", "")
+    MOODLE_USER: str = os.getenv("MOODLE_USER", "").strip().strip('"').strip("'")
+    MOODLE_PASS: str = os.getenv("MOODLE_PASS", "").strip().strip('"').strip("'")
     
     # Puede ser un solo ID o varios separados por coma (ej. "22841,22842")
     RAW_COURSE_ID: str = os.getenv("MOODLE_COURSE_ID", "22841,22842")

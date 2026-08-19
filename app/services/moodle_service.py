@@ -42,17 +42,27 @@ class MoodleService:
     def login_and_save_session(self, page: Page, context: BrowserContext) -> None:
         """Autentica al usuario en Moodle SEA Acatlán y guarda la sesión."""
         print(f"Iniciando sesión en SEA Acatlán ({self.base_url}/login/index.php)...")
-        page.goto(f"{self.base_url}/login/index.php")
+        page.goto(f"{self.base_url}/login/index.php", wait_until="domcontentloaded")
 
         page.fill("#username", self.username)
         page.fill("#password", self.password)
         page.click("#loginbtn")
+        
+        # Esperar activamente la redirección de Moodle fuera de la página de login (hasta 12s para instancias con latencia)
+        try:
+            page.wait_for_url(lambda u: "login/index.php" not in u.lower(), timeout=12000)
+        except Exception:
+            pass
+            
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(1000)
 
-        if "login" in page.url:
+        if "login" in page.url.lower():
+            err_elem = page.locator("#errormsg, .loginerrors, .alert-danger, #loginerrormessage")
+            err_text = err_elem.first.inner_text().strip() if err_elem.count() > 0 else ""
             self.take_debug_screenshot(page, "error_login.png")
-            raise ValueError("Credenciales inválidas o error de inicio de sesión en Moodle. Revisa tu .env")
+            detail = f" (Respuesta de Moodle: '{err_text}')" if err_text else ""
+            raise ValueError(f"Credenciales inválidas o error de inicio de sesión en Moodle{detail}. Revisa MOODLE_USER y MOODLE_PASS en el panel de Render.")
 
         context.storage_state(path=self.session_file)
         print("Sesión guardada exitosamente en session.json.")
@@ -468,10 +478,11 @@ class MoodleService:
         with sync_playwright() as p:
             browser = self.launch_browser_safely(p)
 
+            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             if os.path.exists(self.session_file):
-                context = browser.new_context(storage_state=self.session_file)
+                context = browser.new_context(storage_state=self.session_file, user_agent=ua)
             else:
-                context = browser.new_context()
+                context = browser.new_context(user_agent=ua)
 
             page = context.new_page()
 
