@@ -71,12 +71,20 @@ class MoodleService:
         print("Sesión guardada exitosamente en session.json.")
 
     def ensure_authenticated(self, page: Page, context: BrowserContext) -> None:
-        """Verifica si la sesión actual es válida o ejecuta el login si expiró."""
-        print("Verificando sesión existente...")
-        page.goto(f"{self.base_url}/my/")
-        page.wait_for_load_state("domcontentloaded")
-        if "login" in page.url:
-            self.login_and_save_session(page, context)
+        """Verifica si la sesión guardada en session.json es válida; si expiró, ejecuta el login de respaldo (fallback)."""
+        if os.path.exists(self.session_file):
+            print("🔑 Verificando cookie de sesión existente en session.json...")
+            try:
+                page.goto(f"{self.base_url}/my/", wait_until="domcontentloaded")
+                if "login" not in page.url.lower():
+                    print("⚡ Sesión activa reutilizada con éxito desde session.json. (Omitiendo formulario de login).")
+                    return
+                print("⚠️ La cookie de sesión guardada en session.json expiró. Ejecutando inicio de sesión de respaldo...")
+            except Exception as e:
+                print(f"Aviso al verificar cookie de sesión: {e}")
+
+        # Fallback: Login completo si la cookie no existe o expiró
+        self.login_and_save_session(page, context)
 
     def navigate_and_find_section(self, page: Page, course_id: str, categoria_nombre: str) -> int:
         """
@@ -233,9 +241,10 @@ class MoodleService:
         page.goto(url_crear)
         page.wait_for_load_state("domcontentloaded")
 
-        if "login" in page.url:
-            self.take_debug_screenshot(page, "error_sesion_expirada.png")
-            raise ValueError("Moodle redirigió a login. Comprueba las credenciales en .env")
+        if "login" in page.url.lower():
+            print("⚠️ Moodle redirigió a login a mitad del proceso. Re-autenticando vía fallback...")
+            self.login_and_save_session(page, context)
+            page.goto(url_crear, wait_until="domcontentloaded")
 
         # 3. Llenar Nombre
         try:
@@ -369,9 +378,10 @@ class MoodleService:
         page.goto(url_crear)
         page.wait_for_load_state("domcontentloaded")
 
-        if "login" in page.url:
-            self.take_debug_screenshot(page, "error_sesion_expirada.png")
-            raise ValueError("Moodle redirigió a login. Comprueba las credenciales en .env")
+        if "login" in page.url.lower():
+            print("⚠️ Moodle redirigió a login a mitad del proceso. Re-autenticando vía fallback...")
+            self.login_and_save_session(page, context)
+            page.goto(url_crear, wait_until="domcontentloaded")
 
         try:
             page.wait_for_selector("#id_name", timeout=12000)
