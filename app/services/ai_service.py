@@ -254,10 +254,11 @@ class AIService:
         return None
 
     def parse_linkedin_iframe(self, linkedin_url: Optional[str]) -> Optional[str]:
-        """Transforma una URL de publicación de LinkedIn en un iframe incrustado oficial."""
+        """Transforma una URL de publicación de LinkedIn (Web, App Móvil o URN) en un iframe incrustado oficial."""
         if not linkedin_url or linkedin_url.strip().lower() in ["string", "null", "none", ""]:
             return None
 
+        # 1. Si ya es un código de iframe completo
         if "<iframe" in linkedin_url.lower():
             match = re.search(r'src=["\']([^"\']+)["\']', linkedin_url)
             if match:
@@ -269,11 +270,25 @@ class AIService:
                 )
             return linkedin_url
 
+        # 2. Si contiene una URN explícita (ej: urn:li:activity:7493055751033294848)
         urn_match = re.search(r'(urn:li:(?:activity|share):\d+)', linkedin_url)
         if urn_match:
             urn = urn_match.group(1)
             embed_src = f"https://www.linkedin.com/embed/feed/update/{urn}?collapsed=1"
             print(f"🔗 LinkedIn URN detectado: '{urn}' -> iframe embed generado.")
+            return (
+                f'<div style="text-align: center; margin-bottom: 20px; display: flex; justify-content: center;">'
+                f'  <iframe src="{embed_src}" height="550" width="100%" style="max-width: 504px; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08);" frameborder="0" allowfullscreen="" title="Publicación integrada de LinkedIn"></iframe>'
+                f'</div>'
+            )
+
+        # 3. Si proviene de un enlace móvil o web de LinkedIn (ej: /posts/nombre_publicacion-7495923700815437824-xAwr...)
+        digit_match = re.search(r'(\d{18,20})', linkedin_url)
+        if digit_match:
+            post_id = digit_match.group(1)
+            urn = f"urn:li:activity:{post_id}"
+            embed_src = f"https://www.linkedin.com/embed/feed/update/{urn}?collapsed=1"
+            print(f"📱 ID de publicación móvil LinkedIn detectado: '{post_id}' -> iframe embed URN '{urn}' generado.")
             return (
                 f'<div style="text-align: center; margin-bottom: 20px; display: flex; justify-content: center;">'
                 f'  <iframe src="{embed_src}" height="550" width="100%" style="max-width: 504px; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08);" frameborder="0" allowfullscreen="" title="Publicación integrada de LinkedIn"></iframe>'
