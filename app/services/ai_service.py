@@ -45,13 +45,13 @@ HF_MODELS_POOL = [
 
 GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
 
-REGLAS STRICTAS DE CLASIFICACIÓN EN MOODLE:
-1. "Recursos": CURSOS (gratuitos o de pago), programas de formación/idiomas, certificaciones, tutoriales, libros, repositorios o herramientas de software.
+REGLAS E STRICTAS DE CLASIFICACIÓN EN MOODLE:
+1. "Recursos": CURSOS (gratuitos o de pago), PROGRAMAS DE BECAS (ej. BécALAS, Santander Becas, Bécalos), PROGRAMAS DE EMBAJADORES (ej. Student Ambassador), programas de formación/idiomas, certificaciones, tutoriales, libros, repositorios o herramientas de software.
 2. "Eventos": WEBINARS, conferencias, talleres en vivo, showcases con fecha/hora o reuniones presenciales/virtuales.
 3. "Interns & Job Offers": ÚNICAMENTE Y EXCLUSIVAMENTE vacantes de empleo directo, contrataciones o puestos de pasantía laboral (Internship / Job Vacancy).
-4. "Tareas": ASIGNACIONES DE CLASE, entregas de trabajos, ejercicios dejados por el profesor, plantillas de Canva (ej. https://canva.link/...) o tareas con fecha límite.
+4. "Tareas": ÚNICAMENTE Y EXCLUSIVAMENTE si el texto o enlace incluye una plantilla o actividad de CANVA (ej. https://canva.link/... o https://canva.com/...). Si se trata de un Programa de Becas, Embajadores o Convocatorias (aunque mencionen "actividades", "formulario" o "registro"), DEBE CLASIFICARSE COMO "Recursos" O "Eventos", NUNCA COMO "Tareas", a menos que contenga explícitamente un enlace de Canva.
 
-FEW-SHOT EXAMPLES (8 EJEMPLOS VARIADOS - 2 POR SECCIÓN):
+FEW-SHOT EXAMPLES (9 EJEMPLOS VARIADOS):
 
 --- SECCIÓN TAREAS (EJEMPLO 1: PLANTILLA CANVA / ENTREGABLE) ---
 Texto de Origen: "CV for stem https://canva.link/0yg17mek4a9umqq"
@@ -63,7 +63,7 @@ Respuesta Esperada:
   "descripcion_html": "<h4>📝 Instrucciones de la Tarea</h4><p>Diseña tu Curriculum Vitae enfocado en áreas STEM utilizando la plantilla oficial en Canva.</p><h4>🔗 Enlace a la Plantilla de Canva</h4><p><a href=\"https://canva.link/0yg17mek4a9umqq\" target=\"_blank\">🎨 Ver Plantilla en Canva</a></p><h4>⏰ Entrega Límite</h4><p>Disponibilidad máxima de 15 días a partir de la fecha de publicación.</p>"
 }
 
---- SECCIÓN TAREAS (EJEMPLO 2: TAREA O PROYECTO DEL PROFESOR) ---
+--- SECCIÓN TAREAS (EJEMPLO 2: TAREA O PROYECTO CON LINK CANVA) ---
 Texto de Origen: "Tarea de Laboratorio: Implementación de Estructuras de Datos y Algoritmos en C++ https://canva.link/x4iex4y764964sm"
 Respuesta Esperada:
 {
@@ -73,7 +73,17 @@ Respuesta Esperada:
   "descripcion_html": "<h4>📝 Instrucciones de la Tarea</h4><p>Revisa la plantilla del proyecto y entrega el código documentado con las pruebas correspondientes.</p><h4>🔗 Enlace a la Plantilla / Recursos</h4><p><a href=\"https://canva.link/x4iex4y764964sm\" target=\"_blank\">🎨 Abrir Recursos de la Tarea en Canva</a></p><h4>⏰ Entrega Límite</h4><p>Disponibilidad máxima de 15 días a partir de hoy.</p>"
 }
 
---- SECCIÓN RECURSOS (EJEMPLO 1: CURSO DE IDIOMAS) ---
+--- SECCIÓN RECURSOS (EJEMPLO 1: PROGRAMA DE BECAS Y EMBAJADORES - BÉCALAS) ---
+Texto de Origen: "¿Cuándo registrarse? El periodo de registro estará abierto del lunes 3 de agosto al lunes 31 de agosto de 2026. Para postularte, debes ingresar a la plataforma oficial https://becalas.becalos.mx/, completar el formulario y firmar la carta compromiso dentro del sistema. ¿Qué encontrarás en BécALAS? Recursos virtuales, Podcasts, Mentorías profesionales y Círculos de lectura..."
+Respuesta Esperada:
+{
+  "empresa_detectada": "Bécalos",
+  "categoria_moodle": "Recursos",
+  "nombre": "📚 Convocatoria Programa de Becas y Embajadoras BécALAS 2026",
+  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso / programa?</h4><p>Programa integral de desarrollo profesional y becas de 12 semanas diseñado para impulsar el liderazgo de mujeres en STEM mediante mentorías, recursos virtuales y apoyo económico de $4,000 MXN.</p><h4>💼 ¿Por qué beneficia a los estudiantes?</h4><p>Permite conectar con mentoras líderes de la industria, fortalecer habilidades socioemocionales y acceder a jornadas académicas con gastos cubiertos.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Liderazgo y agencia profesional</li><li>Mentoría y desarrollo laboral</li><li>Habilidades socioemocionales</li></ul><h4>📌 Recomendación Académica</h4><p>Revisa las fechas de convocatoria y completa tu registro oficial dentro de la plataforma antes del cierre del periodo.</p>"
+}
+
+--- SECCIÓN RECURSOS (EJEMPLO 2: CURSO DE IDIOMAS) ---
 Texto de Origen: "Curso Santander British Council English online 2026 - 10.000 plazas gratis para mejorar tu nivel de inglés."
 Respuesta Esperada:
 {
@@ -83,7 +93,7 @@ Respuesta Esperada:
   "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Programa gratuito de formación en idioma inglés impartido por British Council y Santander Open Academy con 10,000 becas disponibles.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>El inglés técnico y profesional es un requisito fundamental para trabajar en empresas multinacionales de tecnología.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Inglés técnico empresarial</li><li>Comunicación efectiva internacional</li></ul><h4>📌 Recomendación Académica</h4><p>Aprovecha esta oportunidad para elevar tu nivel de inglés antes de egresar.</p>"
 }
 
---- SECCIÓN RECURSOS (EJEMPLO 2: TUTORIAL Y CERTIFICACIÓN TÉCNICA) ---
+--- SECCIÓN RECURSOS (EJEMPLO 3: TUTORIAL Y CERTIFICACIÓN TÉCNICA) ---
 Texto de Origen: "Aprende FastAPI y Python avanzado para construir microservicios escalables con Docker y PostgreSQL en esta guía completa."
 Respuesta Esperada:
 {
@@ -110,7 +120,7 @@ Respuesta Esperada:
   "empresa_detectada": "FES Acatlán",
   "categoria_moodle": "Eventos",
   "nombre": "📅 Taller Presencial de Ciberseguridad e IA en FES Acatlán",
-  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Sesión presencial interactiva sobre detección de vulnerabilidades y defensa asistida por modelos de lenguaje.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>La seguridad informática y la protección de datos son prioridades estratégicas en la industria.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Lógica de seguridad defensiva y hacking ético básico</li></ul><h4>📌 Recomendación Académica</h4><p>No te pierdas esta conferencia presencial en el campus.</p>"
+  "descripcion_html": "<h4>🎓 ¿De qué trata este recurso?</h4><p>Sesión presencial interactiva sobre detección de vulnerabilidades y defensa asistida por modelos de lenguaje.</p><h4>💼 ¿Por qué las empresas lo solicitan?</h4><p>La seguridad informática y la protección de datos son prioridades strategic en la industria.</p><h4>🚀 Habilidades clave para tu CV</h4><ul><li>Lógica de seguridad defensiva y hacking ético básico</li></ul><h4>📌 Recomendación Académica</h4><p>No te pierdas esta conferencia presencial en el campus.</p>"
 }
 
 --- SECCIÓN INTERNS & JOB OFFERS (EJEMPLO 1: PASANTÍA TÉCNICA) ---
@@ -405,7 +415,7 @@ class AIService:
             "canva.link" in url.lower()
             or "canva.com" in url.lower()
             or "canva.link" in texto_lower
-            or any(w in texto_lower for w in ["tarea", "entregable", "actividad", "practica", "práctica", "laboratorio", "cv for stem"])
+            or "canva.com" in texto_lower
         )
         is_course = any(w in texto_lower for w in ["curso", "course", "aprender", "aprender inglés", "idiomas", "beca de estudio", "tutorial", "capacitación"])
         is_event = any(w in texto_lower for w in ["webinar", "conferencia", "taller", "presencial", "en vivo", "showcase", "hackathon"])
@@ -490,7 +500,7 @@ class AIService:
             "canva.link" in url.lower()
             or "canva.com" in url.lower()
             or "canva.link" in texto_lower
-            or any(w in texto_lower for w in ["tarea", "entregable", "actividad", "cv for stem"])
+            or "canva.com" in texto_lower
         )
         is_course = any(w in texto_lower for w in ["curso", "course", "aprender", "aprender inglés", "idiomas", "beca de estudio", "tutorial", "capacitación"])
         is_job_post = (
@@ -503,7 +513,7 @@ class AIService:
 
         active_system_prompt = JOB_OFFER_SYSTEM_PROMPT if is_job_post else GENERAL_SYSTEM_PROMPT
         if is_task:
-            self._log("📝 Detectada Asignación / Tarea de Canva. Clasificando para sección Tareas con limite de 15 días.", "info", cb)
+            self._log("📝 Detectada Asignación / Tarea de Canva. Clasificando para sección Tareas con límite de 15 días.", "info", cb)
         elif is_job_post:
             self._log("💼 Detectada Oferta de Empleo / Job Post. Utilizando Prompt Especializado de Autoevaluación y Roadmap.", "info", cb)
 
@@ -547,6 +557,9 @@ class AIService:
                         data["categoria_moodle"] = "Tareas"
                     elif is_job_post:
                         data["categoria_moodle"] = "Interns & Job Offers"
+                    elif data.get("categoria_moodle") == "Tareas":
+                        # Las Tareas son SOLO si trae enlace de Canva; si no, colocar en Recursos (ej. Becas/Embajadores)
+                        data["categoria_moodle"] = "Recursos"
 
                     data["descripcion_html"] = self.attach_header_to_html(
                         data.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
@@ -565,6 +578,9 @@ class AIService:
                 gemini_res["categoria_moodle"] = "Tareas"
             elif is_job_post:
                 gemini_res["categoria_moodle"] = "Interns & Job Offers"
+            elif gemini_res.get("categoria_moodle") == "Tareas":
+                # Las Tareas son SOLO si trae enlace de Canva; si no, colocar en Recursos (ej. Becas/Embajadores)
+                gemini_res["categoria_moodle"] = "Recursos"
             elif is_course and gemini_res.get("categoria_moodle") == "Interns & Job Offers":
                 gemini_res["categoria_moodle"] = "Recursos"
 
