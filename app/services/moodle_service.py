@@ -437,15 +437,24 @@ class MoodleService:
         return [str(target)]
 
     def launch_browser_safely(self, p):
-        """Intenta lanzar Chromium. Si falta en Codespaces, lo instala automáticamente."""
+        """Intenta lanzar Chromium con banderas optimizadas de memoria para entornos con 512MB RAM."""
+        launch_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--no-zygote",
+            "--single-process",
+        ]
         try:
-            return p.chromium.launch(headless=True)
+            return p.chromium.launch(headless=True, args=launch_args)
         except Exception as e:
             if "Executable doesn't exist" in str(e) or "playwright install" in str(e):
                 print("Binarios de Chromium no encontrados. Instalando automáticamente...")
                 subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-                return p.chromium.launch(headless=True)
+                return p.chromium.launch(headless=True, args=launch_args)
             raise e
+
 
     def publish_item(self, item: Dict[str, Any], course_id: Any = None, log_cb: Optional[Callable[[str, str], None]] = None) -> List[str]:
         """

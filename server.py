@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import queue
 import re
 import threading
@@ -231,6 +232,9 @@ async def webhook_linkedin_stream(payload: LinkedInPayload, x_token: str = Heade
 
 
 if __name__ == "__main__":
-    port = 8000
-    setup_ngrok_tunnel(port)
+    port = int(os.environ.get("PORT", 8000))
+    # Solo iniciar túnel Ngrok en entorno local (Render define la variable RENDER=true)
+    if not os.environ.get("RENDER"):
+        setup_ngrok_tunnel(port)
     uvicorn.run(app, host="0.0.0.0", port=port)
+

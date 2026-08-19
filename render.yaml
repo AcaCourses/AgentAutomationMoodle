@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: agent-automation-moodle
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    envVars:
+      - key: MOODLE_BASE_URL
+        value: https://sea.acatlan.unam.mx
+      - key: MOODLE_USER
+        sync: false
+      - key: MOODLE_PASS
+        sync: false
+      - key: MOODLE_COURSE_ID
+        value: "22841,22842"
+      - key: API_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
