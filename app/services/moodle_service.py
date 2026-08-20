@@ -56,7 +56,6 @@ class MoodleService:
             pass
             
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(1000)
 
         if "login" in page.url.lower():
             err_elem = page.locator("#errormsg, .loginerrors, .alert-danger, #loginerrormessage")
@@ -100,7 +99,6 @@ class MoodleService:
                 print("Activando 'Modo de edición'...")
                 edit_switch.first.click()
                 page.wait_for_load_state("domcontentloaded")
-                page.wait_for_timeout(1000)
                 print("Modo de edición activado correctamente.")
         except Exception as e:
             print(f"Aviso al activar Modo de edición: {e}")
@@ -155,7 +153,10 @@ class MoodleService:
         el contenido HTML de forma garantizada vía la API JS de TinyMCE e Iframe.
         """
         print("Esperando la inicialización del editor de Descripción (TinyMCE / Atto)...")
-        page.wait_for_timeout(1500) # Pausa estratégica para permitir la carga del editor JS
+        try:
+            page.locator('#id_introeditor_editable, iframe[id*="id_introeditor"], #id_introeditor').first.wait_for(state="attached", timeout=5000)
+        except Exception:
+            pass
 
         try:
             # 1. Inyección directa utilizando la API global de TinyMCE
@@ -225,8 +226,10 @@ class MoodleService:
         descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
 
         # 1. Encontrar la sección correspondiente en el curso
-        section_index = item.get("seccion") if "seccion" in item and item["seccion"] != 0 else None
-        if section_index is None:
+        # Si seccion viene como 0, None o no está especificada, ignorarla para no forzar la sección 'General'
+        # y permitir que navigate_and_find_section ubique la pestaña 'Recursos' u otra categoría real.
+        section_index = item.get("seccion")
+        if section_index is None or str(section_index).strip() == "0":
             section_index = self.navigate_and_find_section(page, course_id, categoria)
 
         print(f"Publicando recurso URL en Curso {course_id} | Sección '{categoria}' (id: {section_index})...")
@@ -302,11 +305,9 @@ class MoodleService:
 
         self.take_debug_screenshot(page, f"formulario_completado_curso_{course_id}.png")
 
-        # 7. Clic en 'Guardar cambios y regresar al curso'
         print("Guardando cambios en Moodle...")
         page.click("#id_submitbutton2")
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(2000)
         print(f"✅ Recurso '{nombre}' publicado con éxito en la sección '{categoria}' del curso {course_id}.")
         self.take_debug_screenshot(page, f"curso_{course_id}_publicado.png")
 
@@ -390,8 +391,8 @@ class MoodleService:
         descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
         dias_entrega = item.get("dias_entrega", 15)
 
-        section_index = item.get("seccion") if "seccion" in item and item["seccion"] != 0 else None
-        if section_index is None:
+        section_index = item.get("seccion")
+        if section_index is None or str(section_index).strip() == "0":
             section_index = self.navigate_and_find_section(page, course_id, categoria)
 
         print(f"Publicando Tarea (assign) en Curso {course_id} | Sección '{categoria}' (id: {section_index})...")
@@ -442,7 +443,6 @@ class MoodleService:
         print("Guardando cambios de la Tarea en Moodle...")
         page.click("#id_submitbutton2")
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(2000)
         print(f"✅ Tarea '{nombre}' creada con éxito con entrega a {dias_entrega} días en la sección '{categoria}' del curso {course_id}.")
         self.take_debug_screenshot(page, f"curso_{course_id}_tarea_publicada.png")
 
@@ -464,7 +464,6 @@ class MoodleService:
 
         page.click("#id_submitbutton")
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(2000)
         print(f"✅ Anuncio '{asunto}' publicado en el foro exitosamente.")
 
     def resolve_target_courses(self, target: Any) -> List[str]:
@@ -492,6 +491,14 @@ class MoodleService:
             "--disable-gpu",
             "--no-zygote",
             "--single-process",
+            "--disable-extensions",
+            "--disable-component-extensions-with-background-pages",
+            "--disable-default-apps",
+            "--mute-audio",
+            "--no-first-run",
+            "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            '--js-flags="--max-old-space-size=128"',
         ]
         try:
             return p.chromium.launch(headless=True, args=launch_args)
@@ -522,8 +529,8 @@ class MoodleService:
                 context = browser.new_context(user_agent=ua)
 
             page = context.new_page()
-            # 🚀 Opción A: Bloqueo de imágenes y multimedia para acelerar Moodle y ahorrar RAM sin afectar scripts/fuentes del tema
-            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media"] else route.continue_())
+            # 🚀 Opción A & 3: Bloqueo de imágenes, multimedia y fuentes para acelerar Moodle y ahorrar RAM/CPU
+            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
 
             try:
                 self._log("🔑 Autenticando en Moodle SEA Acatlán...", "info", log_cb)
@@ -535,25 +542,39 @@ class MoodleService:
                 if categoria == "Tareas" or tipo == "tarea_assign":
                     tipo = "tarea_assign"
 
+                failed_courses = []
                 for cid in courses:
                     self._log(f"📌 Procesando Curso ID: {cid}", "info", log_cb)
-                    if tipo == "tarea_assign":
-                        self.publish_assignment(page, item, course_id=cid)
-                        published_courses.append(cid)
-                    elif tipo == "recurso_url":
-                        self.publish_url_resource(page, item, course_id=cid)
-                        published_courses.append(cid)
-                    elif tipo == "anuncio_foro":
-                        self.publish_forum_announcement(page, item)
-                        published_courses.append(cid)
-                    else:
-                        raise ValueError(f"Tipo de recurso desconocido: {tipo}")
+                    try:
+                        if tipo == "tarea_assign":
+                            self.publish_assignment(page, item, course_id=cid)
+                            published_courses.append(cid)
+                        elif tipo == "recurso_url":
+                            self.publish_url_resource(page, item, course_id=cid)
+                            published_courses.append(cid)
+                        elif tipo == "anuncio_foro":
+                            self.publish_forum_announcement(page, item)
+                            published_courses.append(cid)
+                        else:
+                            raise ValueError(f"Tipo de recurso desconocido: {tipo}")
+                        self._log(f"✅ Éxito al publicar en el Curso ID: {cid}", "success", log_cb)
+                    except Exception as err:
+                        page_url = page.url if 'page' in locals() and page else 'N/A'
+                        self._log(f"⚠️ Error al publicar en el Curso ID: {cid}: {err} | URL actual: '{page_url}'", "error", log_cb)
+                        failed_courses.append({"course_id": cid, "error": str(err)})
 
-                self._log(f"🎉 Publicación finalizada con éxito en {len(published_courses)} curso(s).", "success", log_cb)
+                if published_courses:
+                    self._log(f"🎉 Publicación completada con éxito en los cursos: {', '.join(published_courses)}", "success", log_cb)
+                
+                if failed_courses:
+                    failed_ids = [f['course_id'] for f in failed_courses]
+                    self._log(f"❌ La publicación falló en los siguientes cursos: {', '.join(failed_ids)}", "warn", log_cb)
+
+                if not published_courses and failed_courses:
+                    raise RuntimeError(f"No se pudo publicar el recurso en ningún curso. Detalle de fallas: {failed_courses}")
 
             except Exception as e:
-                page_url = page.url if 'page' in locals() and page else 'N/A'
-                self._log(f"❌ Error en la ejecución: {e} | URL al fallar: '{page_url}'", "error", log_cb)
+                self._log(f"❌ Error crítico en el flujo de Moodle: {e}", "error", log_cb)
                 raise e
             finally:
                 browser.close()
