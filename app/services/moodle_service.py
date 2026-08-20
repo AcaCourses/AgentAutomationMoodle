@@ -239,20 +239,32 @@ class MoodleService:
         descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
 
         # 1. Encontrar la sección correspondiente en el curso
-        # Si seccion viene como 0, None o no está especificada, ignorarla para no forzar la sección 'General'
-        # y permitir que navigate_and_find_section ubique la pestaña 'Recursos' u otra categoría real.
         section_index = item.get("seccion")
         if section_index is None or str(section_index).strip() == "0":
-            section_index = self.navigate_and_find_section(page, course_id, categoria)
+            # Mapa por defecto de secciones en Moodle SEA Acatlán para evitar la recarga destructiva de view.php
+            CATEGORY_SECTION_MAP = {
+                "general": 0,
+                "tareas": 1,
+                "interns & job offers": 2,
+                "eventos": 3,
+                "recursos": 4,
+                "puntos extra": 5,
+            }
+            mapped_sec = CATEGORY_SECTION_MAP.get(str(categoria).strip().lower())
+            if mapped_sec is not None:
+                section_index = mapped_sec
+                print(f"📌 Sección '{categoria}' mapeada directamente a section={section_index}")
+            else:
+                section_index = self.navigate_and_find_section(page, course_id, categoria)
 
         print(f"Publicando recurso URL en Curso {course_id} | Sección '{categoria}' (id: {section_index})...")
 
-        # 2. Navegar al formulario de creación 'Nueva URL'
+        # 2. Navegar directamente al formulario de creación 'Nueva URL'
         url_crear = (
             f"{self.base_url}/course/modedit.php?"
-            f"add=url&type=&course={course_id}&section={section_index}&return=0"
+            f"add=url&type=&course={course_id}&section={section_index}&return=0&beforemod=0"
         )
-        page.goto(url_crear, timeout=20000, wait_until="domcontentloaded")
+        page.goto(url_crear, timeout=25000, wait_until="domcontentloaded")
 
         if "login" in page.url.lower():
             print("⚠️ Moodle redirigió a login a mitad del proceso. Re-autenticando vía fallback...")
@@ -405,16 +417,28 @@ class MoodleService:
 
         section_index = item.get("seccion")
         if section_index is None or str(section_index).strip() == "0":
-            section_index = self.navigate_and_find_section(page, course_id, categoria)
+            CATEGORY_SECTION_MAP = {
+                "general": 0,
+                "tareas": 1,
+                "interns & job offers": 2,
+                "eventos": 3,
+                "recursos": 4,
+                "puntos extra": 5,
+            }
+            mapped_sec = CATEGORY_SECTION_MAP.get(str(categoria).strip().lower())
+            if mapped_sec is not None:
+                section_index = mapped_sec
+                print(f"📌 Sección Tareas '{categoria}' mapeada directamente a section={section_index}")
+            else:
+                section_index = self.navigate_and_find_section(page, course_id, categoria)
 
         print(f"Publicando Tarea (assign) en Curso {course_id} | Sección '{categoria}' (id: {section_index})...")
 
         url_crear = (
             f"{self.base_url}/course/modedit.php?"
-            f"add=assign&type=&course={course_id}&section={section_index}&return=0"
+            f"add=assign&type=&course={course_id}&section={section_index}&return=0&beforemod=0"
         )
-        page.goto(url_crear)
-        page.wait_for_load_state("domcontentloaded")
+        page.goto(url_crear, timeout=25000, wait_until="domcontentloaded")
 
         if "login" in page.url.lower():
             print("⚠️ Moodle redirigió a login a mitad del proceso. Re-autenticando vía fallback...")
