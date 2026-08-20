@@ -117,7 +117,7 @@ def webhook_linkedin(payload: LinkedInPayload, x_token: str = Header(None)):
     if not config.MOODLE_USER or not config.MOODLE_PASS or config.MOODLE_USER == "tu_usuario_o_correo":
         raise HTTPException(
             status_code=500,
-            detail="Las credenciales de Moodle no están configuradas en el archivo .env",
+            detail="Las credenciales de Moole no están configuradas en el archivo .env",
         )
 
     logs = []
