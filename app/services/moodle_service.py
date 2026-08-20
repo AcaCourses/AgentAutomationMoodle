@@ -18,26 +18,24 @@ class MoodleService:
         self.session_file = config.SESSION_FILE
 
     def _log(self, msg: str, level: str = "info", cb: Optional[Callable[[str, str], None]] = None):
-        print(msg)
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        formatted_msg = f"[{timestamp}] [{level.upper()}] {msg}"
+        print(formatted_msg)
         if cb:
             try:
-                cb(msg, level)
+                cb(formatted_msg, level)
             except Exception:
                 pass
 
     def take_debug_screenshot(self, page: Page, name: str = "debug_screenshot.png", cb: Optional[Callable[[str, str], None]] = None) -> str:
-        """Captura una captura de pantalla del estado actual para depuración."""
+        """Registra el estado del navegador en los logs sin tomar fotos para optimizar RAM/CPU y acelerar la ejecución."""
         try:
-            os.makedirs("debug", exist_ok=True)
-            path = os.path.join("debug", name)
-            page.screenshot(path=path, full_page=True)
-            msg = f"📸 Captura de pantalla guardada en: {os.path.abspath(path)}"
-            self._log(msg, "info", cb)
-            return path
+            url = page.url if page else "N/A"
+            title = page.title() if page else "N/A"
+            self._log(f"🔍 [Navegador] Estado: '{name}' | URL: {url} | Título: '{title}'", "info", cb)
         except Exception as e:
-            msg = f"No se pudo guardar la captura de pantalla: {e}"
-            self._log(msg, "warn", cb)
-            return ""
+            self._log(f"Aviso al consultar estado de página ({name}): {e}", "warn", cb)
+        return ""
 
     def login_and_save_session(self, page: Page, context: BrowserContext) -> None:
         """Autentica al usuario en Moodle SEA Acatlán y guarda la sesión."""
@@ -266,10 +264,9 @@ class MoodleService:
                 """, nombre)
                 print(f"Campo Nombre completado vía JS fallback: '{nombre}'")
             except Exception:
-                screenshot_path = self.take_debug_screenshot(page, f"error_nombre_curso_{course_id}.png")
+                self.take_debug_screenshot(page, f"error_nombre_curso_{course_id}")
                 raise TimeoutError(
-                    f"No se encontró el campo '#id_name' en Moodle (Página actual: '{page.title()}'). "
-                    f"Captura guardada en: {screenshot_path}"
+                    f"No se encontró el campo '#id_name' en Moodle (Página actual: '{page.title()}', URL: '{page.url}')."
                 )
 
         # 4. Llenar URL externa con selector robusto y fallback JS
@@ -416,10 +413,9 @@ class MoodleService:
             page.fill("#id_name", nombre)
             print(f"Campo Nombre de Tarea completado: '{nombre}'")
         except Exception as e:
-            screenshot_path = self.take_debug_screenshot(page, f"error_nombre_tarea_curso_{course_id}.png")
+            self.take_debug_screenshot(page, f"error_nombre_tarea_curso_{course_id}")
             raise TimeoutError(
-                f"No se encontró el campo '#id_name' en Moodle Tarea (Página actual: '{page.title()}'). "
-                f"Captura guardada en: {screenshot_path}"
+                f"No se encontró el campo '#id_name' en Moodle Tarea (Página actual: '{page.title()}', URL: '{page.url}')."
             )
 
         if descripcion_html:
@@ -553,17 +549,11 @@ class MoodleService:
                     else:
                         raise ValueError(f"Tipo de recurso desconocido: {tipo}")
 
-                if os.path.exists("debug"):
-                    import shutil
-                    shutil.rmtree("debug", ignore_errors=True)
-                    self._log("🧹 Capturas de pantalla de depuración eliminadas tras ejecución exitosa.", "info", log_cb)
-
                 self._log(f"🎉 Publicación finalizada con éxito en {len(published_courses)} curso(s).", "success", log_cb)
 
             except Exception as e:
-                screenshot_path = self.take_debug_screenshot(page, "error_ejecucion_general.png", cb=log_cb)
-                self._log(f"❌ Error en la ejecución: {e}", "error", log_cb)
-                self._log(f"📸 Revisa la captura en: {os.path.abspath(screenshot_path)}", "error", log_cb)
+                page_url = page.url if 'page' in locals() and page else 'N/A'
+                self._log(f"❌ Error en la ejecución: {e} | URL al fallar: '{page_url}'", "error", log_cb)
                 raise e
             finally:
                 browser.close()
