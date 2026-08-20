@@ -125,14 +125,21 @@ class MoodleService:
 
         if not section_found:
             print(f"Buscando sección '{categoria_nombre}' por selectores secundarios...")
-            all_tabs = page.locator('.nav-link, a[role="tab"]').all()
-            for idx, tab in enumerate(all_tabs):
-                txt = tab.inner_text().strip()
-                if categoria_nombre.lower() in txt.lower():
-                    section_index = idx
-                    section_found = True
-                    print(f"Sección '{txt}' identificada en la posición {idx}.")
-                    break
+            found_idx = page.evaluate("""
+                (catName) => {
+                    const tabs = Array.from(document.querySelectorAll('.nav-link, a[role="tab"], .nav-tabs a'));
+                    for (let i = 0; i < tabs.length; i++) {
+                        if (tabs[i].innerText.toLowerCase().includes(catName.toLowerCase())) {
+                            return i;
+                        }
+                    }
+                    return -1;
+                }
+            """, categoria_nombre)
+            if found_idx != -1:
+                section_index = found_idx
+                section_found = True
+                print(f"Sección '{categoria_nombre}' identificada en posición JS: {section_index}")
 
         return section_index
 
@@ -228,8 +235,7 @@ class MoodleService:
             f"{self.base_url}/course/modedit.php?"
             f"add=url&type=&course={course_id}&section={section_index}&return=0"
         )
-        page.goto(url_crear)
-        page.wait_for_load_state("domcontentloaded")
+        page.goto(url_crear, timeout=20000, wait_until="domcontentloaded")
 
         if "login" in page.url.lower():
             print("⚠️ Moodle redirigió a login a mitad del proceso. Re-autenticando vía fallback...")
