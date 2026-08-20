@@ -123,12 +123,6 @@ class MoodleService:
                 section_found = True
                 print(f"Índice de sección detectado: {section_index}")
 
-            try:
-                target_tab.first.click()
-                page.wait_for_load_state("domcontentloaded")
-            except Exception:
-                pass
-
         if not section_found:
             print(f"Buscando sección '{categoria_nombre}' por selectores secundarios...")
             all_tabs = page.locator('.nav-link, a[role="tab"]').all()
@@ -138,11 +132,6 @@ class MoodleService:
                     section_index = idx
                     section_found = True
                     print(f"Sección '{txt}' identificada en la posición {idx}.")
-                    try:
-                        tab.click()
-                        page.wait_for_load_state("domcontentloaded")
-                    except Exception:
-                        pass
                     break
 
         return section_index
