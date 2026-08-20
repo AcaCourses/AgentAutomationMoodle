@@ -96,8 +96,11 @@ class MoodleService:
             edit_switch = page.locator('input[name="setmode"], .editmode-switch input')
             if edit_switch.count() > 0 and not edit_switch.first.is_checked():
                 print("Activando 'Modo de edición'...")
-                edit_switch.first.click()
-                page.wait_for_load_state("domcontentloaded")
+                # Activar la casilla marcándola directamente en lugar de click() para evitar destruir el contexto de navegación
+                try:
+                    edit_switch.first.check(force=True)
+                except Exception:
+                    edit_switch.first.click()
                 print("Modo de edición activado correctamente.")
         except Exception as e:
             print(f"Aviso al activar Modo de edición: {e}")
@@ -537,8 +540,8 @@ class MoodleService:
                 context = browser.new_context(user_agent=ua)
 
             page = context.new_page()
-            # 🚀 Opción A & 3: Bloqueo de imágenes, multimedia y fuentes para acelerar Moodle y ahorrar RAM/CPU
-            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
+            # Desactivado bloqueo agresivo para evitar romper librerías o eventos de navegación en Moodle SEA Acatlán
+            # page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
 
             try:
                 self._log("🔑 Autenticando en Moodle SEA Acatlán...", "info", log_cb)
@@ -552,15 +555,18 @@ class MoodleService:
 
                 failed_courses = []
                 for cid in courses:
-                    self._log(f"📌 Procesando Curso ID: {cid}", "info", log_cb)
+                    self._log(f"📌 Procesando Curso ID: {cid} | Verificando sección y formulario de creación...", "info", log_cb)
                     try:
                         if tipo == "tarea_assign":
+                            self._log(f"📝 Publicando Tarea en Curso {cid}...", "info", log_cb)
                             self.publish_assignment(page, item, course_id=cid)
                             published_courses.append(cid)
                         elif tipo == "recurso_url":
+                            self._log(f"🔗 Publicando Recurso URL en Curso {cid}...", "info", log_cb)
                             self.publish_url_resource(page, item, course_id=cid)
                             published_courses.append(cid)
                         elif tipo == "anuncio_foro":
+                            self._log(f"📢 Publicando Anuncio en Foro...", "info", log_cb)
                             self.publish_forum_announcement(page, item)
                             published_courses.append(cid)
                         else:
