@@ -70,6 +70,23 @@ ai_service = AIService()
 moodle_service = MoodleService()
 
 
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    if request.method == "OPTIONS":
+        response = Response(status_code=200)
+    else:
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            response = Response(content=json.dumps({"detail": str(e)}), status_code=500, media_type="application/json")
+    
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Expose-Headers"] = "*"
+    return response
+
+
 @app.options("/{full_path:path}")
 def options_handler(full_path: str):
     return Response(status_code=200)
