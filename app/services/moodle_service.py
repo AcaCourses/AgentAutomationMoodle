@@ -89,8 +89,7 @@ class MoodleService:
         (ej. 'Recursos', 'Eventos', 'Interns & Job Offers') y retorna el índice de la sección.
         """
         print(f"Navegando a la vista principal del Curso {course_id}...")
-        page.goto(f"{self.base_url}/course/view.php?id={course_id}")
-        page.wait_for_load_state("domcontentloaded")
+        page.goto(f"{self.base_url}/course/view.php?id={course_id}", timeout=20000, wait_until="domcontentloaded")
 
         # 1. Activar 'Modo de edición' si no está activo
         try:
@@ -114,32 +113,47 @@ class MoodleService:
         target_tab = page.locator('.nav-tabs a, .nav-link, ul.sections a, div.sectionname a, a[role="tab"]').filter(has_text=categoria_nombre)
 
         if target_tab.count() > 0:
-            href = target_tab.first.get_attribute("href") or ""
-            print(f"Pestaña encontrada '{categoria_nombre}' con enlace: {href}")
-            
-            match = re.search(r'section[=\-]?(\d+)', href)
-            if match:
-                section_index = int(match.group(1))
-                section_found = True
-                print(f"Índice de sección detectado: {section_index}")
+            # Buscar atributo href o data-section / data-sectionid
+            for t_idx in range(target_tab.count()):
+                t_elem = target_tab.nth(t_idx)
+                href = t_elem.get_attribute("href") or ""
+                sec_attr = t_elem.get_attribute("data-section") or t_elem.get_attribute("data-sectionid") or ""
+                
+                match = re.search(r'section[=\-]?(\d+)', href) or re.search(r'^(\d+)$', sec_attr)
+                if match:
+                    section_index = int(match.group(1))
+                    section_found = True
+                    print(f"Índice de sección detectado vía atributo: {section_index}")
+                    break
 
         if not section_found:
-            print(f"Buscando sección '{categoria_nombre}' por selectores secundarios...")
-            found_idx = page.evaluate("""
+            print(f"Buscando sección '{categoria_nombre}' por análisis dinámico de pestañas del formato Onetopic...")
+            section_info = page.evaluate("""
                 (catName) => {
-                    const tabs = Array.from(document.querySelectorAll('.nav-link, a[role="tab"], .nav-tabs a'));
-                    for (let i = 0; i < tabs.length; i++) {
-                        if (tabs[i].innerText.toLowerCase().includes(catName.toLowerCase())) {
+                    // Pestañas del formato por temas/pestañas de Moodle (Onetopic format)
+                    const tabElements = document.querySelectorAll('ul.nav-tabs > li, .tabtree > ul > li, .course-content ul.sections > li');
+                    for (let i = 0; i < tabElements.length; i++) {
+                        const el = tabElements[i];
+                        const text = el.innerText.trim();
+                        if (text.toLowerCase().includes(catName.toLowerCase())) {
+                            // Intentar obtener de enlace interno
+                            const a = el.querySelector('a');
+                            if (a && a.href) {
+                                const m = a.href.match(/section[=\\-]?(\\d+)/);
+                                if (m) return parseInt(m[1]);
+                            }
+                            // Retornar posición del tab (1-indexed en Moodle)
                             return i;
                         }
                     }
-                    return -1;
+                    return null;
                 }
             """, categoria_nombre)
-            if found_idx != -1:
-                section_index = found_idx
+
+            if section_info is not None:
+                section_index = section_info
                 section_found = True
-                print(f"Sección '{categoria_nombre}' identificada en posición JS: {section_index}")
+                print(f"Sección '{categoria_nombre}' identificada dinámicamente en posición: {section_index}")
 
         return section_index
 
