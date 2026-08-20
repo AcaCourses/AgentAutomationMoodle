@@ -97,7 +97,7 @@ def options_root():
     return Response(status_code=200)
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
     return {
         "status": "online",
