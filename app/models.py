@@ -31,6 +31,17 @@ class LinkedInPayload(BaseModel):
     )
 
 
+class ChatPayload(BaseModel):
+    message: str = Field(
+        ...,
+        description="Mensaje completo del usuario enviado al chatbot Modi",
+        json_schema_extra={"example": "Hola Modi! Publica este curso de Google https://grow.google/3x5... para la empresa Google en el curso 22841"}
+    )
+    course_id: Optional[Union[int, str, List[Union[int, str]]]] = Field(default=None)
+    seccion: Optional[int] = Field(default=None)
+
+
+
 class RecursoItem(BaseModel):
     tipo: Literal["recurso_url", "anuncio_foro", "tarea_assign"] = "recurso_url"
     course_id: Optional[Union[str, int, List[Union[str, int]]]] = None

@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 
 from app.config import config
-from app.models import LinkedInPayload
+from app.models import LinkedInPayload, ChatPayload
 from app.services.ai_service import AIService
 from app.services.moodle_service import MoodleService
 from app.services.ngrok_service import setup_ngrok_tunnel
@@ -246,6 +246,108 @@ async def webhook_linkedin_stream(payload: LinkedInPayload, x_token: str = Heade
                 await asyncio.sleep(0.1)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/webhook-chat-stream")
+async def webhook_chat_stream(payload: ChatPayload, x_token: str = Header(None)):
+    if x_token != config.API_SECRET:
+        raise HTTPException(
+            status_code=401, detail="Token inválido. Verifica el encabezado x-token."
+        )
+
+    if not config.MOODLE_USER or not config.MOODLE_PASS or config.MOODLE_USER == "tu_usuario_o_correo":
+        raise HTTPException(
+            status_code=500,
+            detail="Las credenciales de Moodle no están configuradas en el archivo .env",
+        )
+
+    event_queue = queue.Queue()
+
+    def send_log(msg: str, level: str = "info"):
+        event_queue.put({"type": "log", "message": msg, "level": level})
+
+    def worker():
+        try:
+            send_log("🤖 Modi recibió tu mensaje. Analizando contenido e intenciones...", "info")
+            parsed_chat = ai_service.parse_chat_message(payload.message, cb=send_log)
+
+            texto = parsed_chat.get("texto", payload.message)
+            url = parsed_chat.get("url")
+            linkedin_url = parsed_chat.get("linkedin_url")
+            empresa = parsed_chat.get("empresa")
+
+            # Resolver curso
+            target_course_id = payload.course_id or parsed_chat.get("course_id")
+            if target_course_id is None or str(target_course_id).strip().lower() in ["string", "null", "none", ""]:
+                target_course_id = config.COURSE_IDS
+
+            seccion = payload.seccion if payload.seccion is not None else parsed_chat.get("seccion", 0)
+
+            send_log("🤖 Generando contenido formativo y clasificando con IA...", "info")
+            datos_ia = ai_service.adapt_linkedin_post(
+                texto, url, empresa, linkedin_url, cb=send_log
+            )
+            categoria_det = datos_ia.get("categoria_moodle", "Recursos")
+
+            # Enviar previsualización temprana al cliente
+            preview_info = {
+                "nombre": datos_ia.get("nombre", "Recurso Destacado"),
+                "empresa": datos_ia.get("empresa"),
+                "categoria_moodle": categoria_det,
+                "url": url,
+                "linkedin_url": linkedin_url,
+                "course_id": target_course_id,
+                "seccion": seccion
+            }
+            event_queue.put({"type": "preview", "data": preview_info})
+
+            send_log(f"🧠 Modi clasificó el elemento como: '{datos_ia.get('nombre')}' ({categoria_det})", "success")
+
+            tipo_item = "tarea_assign" if categoria_det == "Tareas" else "recurso_url"
+
+            item_recurso = {
+                "tipo": tipo_item,
+                "nombre": datos_ia.get("nombre", "Recurso Destacado"),
+                "categoria_moodle": categoria_det,
+                "descripcion_html": datos_ia.get("descripcion_html", ""),
+                "url": url,
+                "seccion": seccion if seccion != 0 else None,
+                "dias_entrega": 15,
+            }
+
+            send_log("🎭 Iniciando automatización con Playwright en Moodle SEA Acatlán...", "info")
+            cursos_publicados = moodle_service.publish_item(item_recurso, course_id=target_course_id, log_cb=send_log)
+
+            result = {
+                "status": "ok",
+                "publicado": datos_ia.get("nombre"),
+                "empresa": datos_ia.get("empresa"),
+                "categoria_moodle": datos_ia.get("categoria_moodle"),
+                "cursos_afectados": cursos_publicados,
+                "datos_ia": datos_ia,
+                "parsed_chat": parsed_chat,
+            }
+            event_queue.put({"type": "result", "data": result})
+        except Exception as e:
+            send_log(f"❌ Error durante la automatización: {str(e)}", "error")
+            event_queue.put({"type": "error", "detail": str(e)})
+        finally:
+            event_queue.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_generator():
+        while True:
+            try:
+                item = event_queue.get_nowait()
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+            except queue.Empty:
+                await asyncio.sleep(0.1)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 
 if __name__ == "__main__":

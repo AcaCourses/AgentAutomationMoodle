@@ -178,6 +178,70 @@ Respuesta Esperada:
 Responde ÚNICAMENTE un JSON válido con esa estructura exacta.
 """
 
+CHAT_PARSER_SYSTEM_PROMPT = """Eres el motor de análisis del Agente Inteligente Moodle llamado "Modi".
+Tu objetivo es analizar un mensaje completo enviado por un profesor en un chat y extraer los parámetros necesarios para publicar la información en Moodle SEA Acatlán (FES Acatlán - UNAM).
+
+REGLAS DE EXTRACCIÓN:
+1. "texto": La descripción o contenido informativo del evento, curso, beca o vacante. Si el usuario incluye etiquetas como "Descripcion:", "Contenido:", "Formulario de Recurso:", extráelo limpiamente.
+2. "url": La URL de destino o registro oficial (ej. https://airtable.com/..., https://canva.link/..., https://grow.google/..., etc.). OBLIGATORIO. Si hay múltiples URLs, selecciona la de registro/destino principal.
+3. "linkedin_url": La URL de la publicación de LinkedIn (ej. https://www.linkedin.com/feed/update/urn:li:activity:... o https://www.linkedin.com/posts/...), si está presente. En caso contrario, null.
+4. "empresa": Nombre de la empresa u organización convocante (ej. "Canva", "IBM", "Santander", "Google", "Microsoft", "AWS", "Oracle", "UNAM", "Bécalos", etc.). Si no viene explícita pero se deduce de la URL o texto, extráela.
+5. "course_id": Si en el mensaje el usuario menciona explícitamente un curso (ej. "22841", "22842", "ambos cursos"), devuélvelo como número o lista. SI NO SE MENCIONA CURSO, DEVUELVE null.
+6. "seccion": Número entero de la sección Moodle (ej. 0, 1, 2, 3...). Si no se indica, devuelve 0.
+
+FEW-SHOT EXAMPLES:
+
+--- EJEMPLO 1: MENSAJE ESTRUCTURADO ---
+Entrada:
+"Formulario de Recurso
+Contenido / Texto Descriptivo: Taller presencial de Inteligencia Artificial Generativa y Python en el laboratorio MAC FES Acatlán este Viernes a las 11am.
+URL Destino / Registro: https://airtable.com/app123/form
+Publicación LinkedIn: https://www.linkedin.com/feed/update/urn:li:activity:7495395360992010241
+Empresa Organizadora: Google"
+
+Respuesta Esperada:
+{
+  "texto": "Taller presencial de Inteligencia Artificial Generativa y Python en el laboratorio MAC FES Acatlán este Viernes a las 11am.",
+  "url": "https://airtable.com/app123/form",
+  "linkedin_url": "https://www.linkedin.com/feed/update/urn:li:activity:7495395360992010241",
+  "empresa": "Google",
+  "course_id": null,
+  "seccion": 0
+}
+
+--- EJEMPLO 2: MENSAJE INFORMAL ---
+Entrada:
+"Hola Modi porfa publica este curso de ingles gratuito de Santander https://www.santanderopenacademy.com/es/skills/english.html para mis alumnos en el curso 22841 en la seccion 2"
+
+Respuesta Esperada:
+{
+  "texto": "Curso de inglés gratuito Santander British Council para fortalecer el perfil técnico y profesional de los estudiantes.",
+  "url": "https://www.santanderopenacademy.com/es/skills/english.html",
+  "linkedin_url": null,
+  "empresa": "Santander",
+  "course_id": 22841,
+  "seccion": 2
+}
+
+--- EJEMPLO 3: PLANTILLA CANVA ---
+Entrada:
+"Descripcion: Plantilla oficial para la Tarea de Laboratorio de Estructuras de Datos
+Registro: https://canva.link/x4iex4y764964sm
+Empresa que lo organiza: Canva"
+
+Respuesta Esperada:
+{
+  "texto": "Plantilla oficial para la Tarea de Laboratorio de Estructuras de Datos.",
+  "url": "https://canva.link/x4iex4y764964sm",
+  "linkedin_url": null,
+  "empresa": "Canva",
+  "course_id": null,
+  "seccion": 0
+}
+
+Responde ÚNICAMENTE un JSON válido con esta estructura.
+"""
+
 
 class AIService:
     def __init__(self):
@@ -608,4 +672,64 @@ class AIService:
         # 3. 🥉 PRIORIDAD 3: Motor Sintético Local de Respaldo
         self._log("💡 Utilizando Motor Sintético Local de Respaldo.", "info", cb)
         return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url, cb=cb)
+
+    def parse_chat_message(
+        self, message: str, cb: Optional[Callable[[str, str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Analiza un mensaje completo del usuario en el chat y extrae:
+        texto, url, linkedin_url, empresa, course_id, seccion.
+        """
+        self._log("🤖 Modi está analizando la estructura del mensaje del chat...", "info", cb)
+
+        # 1. Intentar llamar a Gemini o Hugging Face
+        parsed = self.call_gemini_api(CHAT_PARSER_SYSTEM_PROMPT, message, cb=cb)
+        if not parsed:
+            # Respaldo de regex
+            urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', message)
+            linkedin_url = None
+            main_url = None
+
+            for u in urls:
+                if "linkedin.com" in u.lower():
+                    if not linkedin_url:
+                        linkedin_url = u
+                else:
+                    if not main_url:
+                        main_url = u
+
+            if not main_url and urls:
+                main_url = urls[0]
+
+            # Detectar empresa de conocido
+            detected_company = None
+            msg_lower = message.lower()
+            for key in KNOWN_DOMAINS.keys():
+                if key in msg_lower:
+                    detected_company = key.capitalize()
+                    break
+
+            parsed = {
+                "texto": message,
+                "url": main_url or "https://moodle.acatlan.unam.mx",
+                "linkedin_url": linkedin_url,
+                "empresa": detected_company or "Empresa Tecnológica",
+                "course_id": None,
+                "seccion": 0
+            }
+
+        # Asegurar campos requeridos
+        if not parsed.get("url") or str(parsed.get("url")).strip().lower() in ["none", "null", ""]:
+            urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', message)
+            if urls:
+                parsed["url"] = urls[0]
+            else:
+                parsed["url"] = "https://moodle.acatlan.unam.mx"
+
+        if not parsed.get("texto"):
+            parsed["texto"] = message
+
+        self._log(f"🧠 Mensaje procesado por Modi: Empresa '{parsed.get('empresa')}', URL '{parsed.get('url')}'", "success", cb)
+        return parsed
+
 
