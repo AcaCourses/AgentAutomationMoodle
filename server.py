@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import queue
-import re
 import threading
 import uvicorn
 from typing import Callable

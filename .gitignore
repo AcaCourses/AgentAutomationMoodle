@@ -1,5 +1,13 @@
 .env
 session.json
+recursos.json
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
+venv/
+*.png
+*.log
+.DS_Store
+Thumbs.db
+
