@@ -17,6 +17,24 @@ class MoodleService:
         self.default_courses = config.COURSE_IDS
         self.session_file = config.SESSION_FILE
 
+    @staticmethod
+    def format_title_with_date(title: Optional[str], pub_date: Optional[str] = None) -> str:
+        """
+        Agrega de forma determinista la fecha de publicación al inicio del título.
+        Formato: [DD/MM/YYYY] Título
+        Asegura que el sistema siempre calcule la fecha y la integre al título de la actividad.
+        """
+        if not pub_date:
+            pub_date = datetime.datetime.now().strftime("%d/%m/%Y")
+
+        prefix = f"[{pub_date}]"
+        if not title:
+            return f"{prefix} Recurso Destacado"
+
+        # Eliminar cualquier patrón previo de fecha al inicio (ej. [23/08/2026] o 2026-08-23)
+        cleaned_title = re.sub(r'^\s*\[?\d{2,4}[/-]\d{2}[/-]\d{2,4}\]?\s*[-:\s]*', '', title).strip()
+        return f"{prefix} {cleaned_title}"
+
     def _log(self, msg: str, level: str = "info", cb: Optional[Callable[[str, str], None]] = None):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_msg = f"[{timestamp}] [{level.upper()}] {msg}"
@@ -234,7 +252,8 @@ class MoodleService:
         Rellena: Nombre, URL externa, Descripción enriquecida en HTML por IA y marca 'Mostrar descripción'.
         """
         categoria = item.get("categoria_moodle") or item.get("categoria") or "Recursos"
-        nombre = item.get("nombre") or item.get("titulo", "Nuevo Recurso URL")
+        nombre = self.format_title_with_date(item.get("nombre") or item.get("titulo", "Nuevo Recurso URL"))
+        item["nombre"] = nombre
         url = item.get("url")
         descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
 
@@ -411,7 +430,8 @@ class MoodleService:
         Configura Disponibilidad con 15 días límite a partir de hoy.
         """
         categoria = item.get("categoria_moodle") or "Tareas"
-        nombre = item.get("nombre") or item.get("titulo", "Nueva Tarea")
+        nombre = self.format_title_with_date(item.get("nombre") or item.get("titulo", "Nueva Tarea"))
+        item["nombre"] = nombre
         descripcion_html = item.get("descripcion_html") or item.get("contenido_html", "")
         dias_entrega = item.get("dias_entrega", 15)
 
@@ -487,7 +507,8 @@ class MoodleService:
     ) -> None:
         """Publica un anuncio en el foro especificado."""
         forum_id = item.get("forum_id")
-        asunto = item.get("asunto", "Nuevo Anuncio")
+        asunto = self.format_title_with_date(item.get("asunto") or item.get("nombre", "Nuevo Anuncio"))
+        item["asunto"] = asunto
         mensaje = item.get("mensaje", "")
 
         print(f"Publicando anuncio en Foro {forum_id}: '{asunto}'...")
@@ -574,6 +595,8 @@ class MoodleService:
 
                 tipo = item.get("tipo", "recurso_url")
                 categoria = item.get("categoria_moodle") or item.get("categoria", "")
+                if item.get("nombre"):
+                    item["nombre"] = self.format_title_with_date(item["nombre"])
                 if categoria == "Tareas" or tipo == "tarea_assign":
                     tipo = "tarea_assign"
 

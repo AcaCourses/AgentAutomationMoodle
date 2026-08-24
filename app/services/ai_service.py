@@ -1,3 +1,4 @@
+import datetime
 import json
 import re
 import time
@@ -386,6 +387,24 @@ class AIService:
         b64_str = base64.b64encode(svg_code.encode("utf-8")).decode("utf-8")
         return f"data:image/svg+xml;base64,{b64_str}"
 
+    @staticmethod
+    def format_title_with_date(title: Optional[str], pub_date: Optional[str] = None) -> str:
+        """
+        Agrega de forma determinista la fecha de publicación al inicio del título.
+        Formato: [DD/MM/YYYY] Título
+        Asegura que el sistema siempre calcule la fecha y la integre al título de la actividad.
+        """
+        if not pub_date:
+            pub_date = datetime.datetime.now().strftime("%d/%m/%Y")
+
+        prefix = f"[{pub_date}]"
+        if not title:
+            return f"{prefix} Recurso Destacado"
+
+        # Eliminar cualquier patrón previo de fecha al inicio (ej. [23/08/2026] o 2026-08-23)
+        cleaned_title = re.sub(r'^\s*\[?\d{2,4}[/-]\d{2}[/-]\d{2,4}\]?\s*[-:\s]*', '', title).strip()
+        return f"{prefix} {cleaned_title}"
+
     def resolve_company_logo(
         self, empresa_input: Optional[str], url: str, texto: str, cb: Optional[Callable[[str, str], None]] = None
     ) -> Dict[str, str]:
@@ -508,7 +527,7 @@ class AIService:
                 titulo_clean = re.sub(r'https?://\S+', '', titulo_clean).strip()
             if not titulo_clean:
                 titulo_clean = "Actividad / Tarea de Canva"
-            nombre = f"📝 Tarea: {titulo_clean}"
+            nombre = self.format_title_with_date(f"📝 Tarea: {titulo_clean}")
             base_html = (
                 f"<h4>📝 Instrucciones de la Tarea</h4><p>{texto}</p>"
                 f"<h4>🔗 Enlace a la Plantilla / Recursos Oficiales</h4>"
@@ -517,7 +536,7 @@ class AIService:
             )
         elif is_job:
             categoria = "Interns & Job Offers"
-            nombre = f"💼 {empresa_name}: Vacante Laboral"
+            nombre = self.format_title_with_date(f"💼 {empresa_name}: Vacante Laboral")
             base_html = (
                 f"<h4>💼 Detalles de la Vacante / Convocatoria ({empresa_name})</h4><p>{texto}</p>"
                 f"<h4>❓ Preguntas de Autoevaluación (¿Encajas con el perfil?)</h4>"
@@ -533,7 +552,7 @@ class AIService:
             categoria = "Eventos"
             lineas = [l.strip() for l in texto.split("\n") if l.strip()]
             titulo_clean = re.sub(r'^[^\w]+', '', lineas[0]) if lineas else texto[:40]
-            nombre = f"📅 {titulo_clean[:55]}"
+            nombre = self.format_title_with_date(f"📅 {titulo_clean[:55]}")
             base_html = (
                 f"<h4>🎓 ¿De qué trata este recurso?</h4><p>{texto}</p>"
                 f"<h4>💼 ¿Por qué {empresa_name} lo ofrece?</h4><p>Espacio de interacción directa con líderes de la industria.</p>"
@@ -543,7 +562,7 @@ class AIService:
             categoria = "Recursos"
             lineas = [l.strip() for l in texto.split("\n") if l.strip()]
             titulo_clean = re.sub(r'^[^\w]+', '', lineas[0]) if lineas else texto[:40]
-            nombre = f"📚 {titulo_clean[:55]}"
+            nombre = self.format_title_with_date(f"📚 {titulo_clean[:55]}")
             base_html = (
                 f"<h4>🎓 ¿De qué trata este recurso?</h4><p>{texto}</p>"
                 f"<h4>💼 ¿Por me beneficia como estudiante?</h4><p>Fortalece tus habilidades técnicas con contenido oficial de {empresa_name}.</p>"
@@ -640,6 +659,7 @@ class AIService:
                         # Las Tareas son SOLO si trae enlace de Canva; si no, colocar en Recursos (ej. Becas/Embajadores)
                         data["categoria_moodle"] = "Recursos"
 
+                    data["nombre"] = self.format_title_with_date(data.get("nombre", "Recurso Destacado"))
                     data["descripcion_html"] = self.attach_header_to_html(
                         data.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
                     )
@@ -663,6 +683,7 @@ class AIService:
             elif is_course and gemini_res.get("categoria_moodle") == "Interns & Job Offers":
                 gemini_res["categoria_moodle"] = "Recursos"
 
+            gemini_res["nombre"] = self.format_title_with_date(gemini_res.get("nombre", "Recurso Destacado"))
             gemini_res["descripcion_html"] = self.attach_header_to_html(
                 gemini_res.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
             )
