@@ -629,12 +629,27 @@ class AIService:
                 for model_name in HF_MODELS_POOL:
                     try:
                         self._log(f"🤗 [Hugging Face (Token #{token_idx})] Clasificando y enriqueciendo con modelo: '{model_name}'...", "info", cb)
-                        client = InferenceClient(model=model_name, token=token)
-                        messages = [
-                            {"role": "system", "content": active_system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ]
-                        res = client.chat_completion(messages=messages, max_tokens=1100, temperature=0.2)
+                        try:
+                            client = InferenceClient(model=f"{model_name}:fastest", token=token)
+                            res = client.chat_completion(
+                                messages=[
+                                    {"role": "system", "content": active_system_prompt},
+                                    {"role": "user", "content": user_prompt},
+                                ],
+                                max_tokens=1100,
+                                temperature=0.2
+                            )
+                        except Exception:
+                            # Intentar con el modelo directo en provider hf-inference
+                            client = InferenceClient(model=model_name, token=token, provider="hf-inference")
+                            res = client.chat_completion(
+                                messages=[
+                                    {"role": "system", "content": active_system_prompt},
+                                    {"role": "user", "content": user_prompt},
+                                ],
+                                max_tokens=1100,
+                                temperature=0.2
+                            )
                         raw = res.choices[0].message.content.strip()
 
                         if "```" in raw:
