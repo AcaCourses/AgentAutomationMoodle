@@ -31,17 +31,17 @@ KNOWN_DOMAINS = {
 }
 
 GEMINI_MODELS_POOL = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
     "gemini-1.5-flash",
-    "gemini-2.5-pro",
+    "gemini-1.5-pro",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash-8b",
 ]
 
 HF_MODELS_POOL = [
-    "meta-llama/Llama-3.2-11B-Vision-Instruct",
-    "meta-llama/Llama-3.2-3B-Instruct",
-    "Qwen/Qwen2.5-7B-Instruct",
-    "mistralai/Mistral-7B-Instruct-v0.3",
+    "mistralai/Mistral-7B-Instruct-v0.2",
+    "HuggingFaceH4/zephyr-7b-beta",
+    "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "meta-llama/Meta-Llama-3-8B-Instruct",
 ]
 
 GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
