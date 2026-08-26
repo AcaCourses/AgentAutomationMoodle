@@ -15,11 +15,33 @@ class Config:
     API_SECRET: str = os.getenv("API_SECRET", "mi_clave_secreta")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     HF_TOKEN: str = os.getenv("HF_TOKEN", "")
+    HF_TOKEN_2: str = os.getenv("HF_TOKEN_2", "")
+    HF_TOKENS_RAW: str = os.getenv("HF_TOKENS", "")
     NGROK_AUTHTOKEN: str = os.getenv("NGROK_AUTHTOKEN", "")
     
     SESSION_FILE: str = "session.json"
     JSON_DATA_FILE: str = "recursos.json"
     HF_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"
+
+    @property
+    def HF_TOKENS(self) -> List[str]:
+        """Retorna una lista de API Keys / Tokens de Hugging Face para rotación automática."""
+        tokens = []
+        if self.HF_TOKENS_RAW:
+            tokens.extend([t.strip() for t in self.HF_TOKENS_RAW.split(",") if t.strip()])
+        if self.HF_TOKEN:
+            tokens.append(self.HF_TOKEN.strip())
+        if self.HF_TOKEN_2:
+            tokens.append(self.HF_TOKEN_2.strip())
+        
+        # Eliminar duplicados manteniendo el orden
+        seen = set()
+        result = []
+        for t in tokens:
+            if t not in seen and t != "hf_tu_token_aqui":
+                seen.add(t)
+                result.append(t)
+        return result
 
     @property
     def COURSE_IDS(self) -> List[str]:

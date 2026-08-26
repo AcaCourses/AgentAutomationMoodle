@@ -31,17 +31,17 @@ KNOWN_DOMAINS = {
 }
 
 GEMINI_MODELS_POOL = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash-002",
-    "gemini-1.5-pro-002",
-    "gemini-1.5-flash"
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-2.5-pro",
 ]
 
 HF_MODELS_POOL = [
-    "Qwen/Qwen2.5-72B-Instruct",
-    "meta-llama/Llama-3.3-70B-Instruct",
-    "Qwen/Qwen2.5-Coder-32B-Instruct",
-    "mistralai/Mistral-Nemo-Instruct-2407"
+    "meta-llama/Llama-3.2-11B-Vision-Instruct",
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "Qwen/Qwen2.5-7B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
 ]
 
 GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
@@ -247,7 +247,8 @@ Responde ÚNICAMENTE un JSON válido con esta estructura.
 class AIService:
     def __init__(self):
         self.gemini_key = config.GEMINI_API_KEY
-        self.hf_token = config.HF_TOKEN
+        self.hf_tokens = config.HF_TOKENS
+        self.hf_token = self.hf_tokens[0] if self.hf_tokens else config.HF_TOKEN
         self.last_gemini_call = 0.0
 
     def _log(self, msg: str, level: str = "info", cb: Optional[Callable[[str, str], None]] = None):
@@ -621,53 +622,55 @@ class AIService:
             f"Datos de Investigación Web sobre {empresa_name} y Mercado:\n{research_str}"
         )
 
-        # 1. 🥇 PRIORIDAD 1: Hugging Face Inference API (Preferencia del Usuario)
-        if self.hf_token and self.hf_token != "hf_tu_token_aqui":
-            for model_name in HF_MODELS_POOL:
-                try:
-                    self._log(f"🤗 [Hugging Face] Clasificando y enriqueciendo con modelo: '{model_name}'...", "info", cb)
-                    client = InferenceClient(model=model_name, token=self.hf_token)
-                    messages = [
-                        {"role": "system", "content": active_system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ]
-                    res = client.chat_completion(messages=messages, max_tokens=1100, temperature=0.2)
-                    raw = res.choices[0].message.content.strip()
-
-                    if "```" in raw:
-                        parts = raw.split("```")
-                        for p in parts:
-                            p_str = p.strip()
-                            if p_str.startswith("json"):
-                                p_str = p_str[4:].strip()
-                            if p_str.startswith("{") and p_str.endswith("}"):
-                                raw = p_str
-                                break
-
+        # 1. 🥇 PRIORIDAD 1: Hugging Face Inference API con Rotación de Tokens (Preferencia del Usuario)
+        active_tokens = self.hf_tokens if self.hf_tokens else ([self.hf_token] if self.hf_token and self.hf_token != "hf_tu_token_aqui" else [])
+        if active_tokens:
+            for token_idx, token in enumerate(active_tokens, start=1):
+                for model_name in HF_MODELS_POOL:
                     try:
-                        data = json.loads(raw, strict=False)
-                    except Exception:
-                        cleaned_raw = re.sub(r'[\r\n]+', r'\\n', raw)
-                        data = json.loads(cleaned_raw, strict=False)
+                        self._log(f"🤗 [Hugging Face (Token #{token_idx})] Clasificando y enriqueciendo con modelo: '{model_name}'...", "info", cb)
+                        client = InferenceClient(model=model_name, token=token)
+                        messages = [
+                            {"role": "system", "content": active_system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ]
+                        res = client.chat_completion(messages=messages, max_tokens=1100, temperature=0.2)
+                        raw = res.choices[0].message.content.strip()
 
-                    data["url"] = url
-                    if is_task:
-                        data["categoria_moodle"] = "Tareas"
-                    elif is_job_post:
-                        data["categoria_moodle"] = "Interns & Job Offers"
-                    elif data.get("categoria_moodle") == "Tareas":
-                        # Las Tareas son SOLO si trae enlace de Canva; si no, colocar en Recursos (ej. Becas/Embajadores)
-                        data["categoria_moodle"] = "Recursos"
+                        if "```" in raw:
+                            parts = raw.split("```")
+                            for p in parts:
+                                p_str = p.strip()
+                                if p_str.startswith("json"):
+                                    p_str = p_str[4:].strip()
+                                if p_str.startswith("{") and p_str.endswith("}"):
+                                    raw = p_str
+                                    break
 
-                    data["nombre"] = self.format_title_with_date(data.get("nombre", "Recurso Destacado"))
-                    data["descripcion_html"] = self.attach_header_to_html(
-                        data.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
-                    )
-                    data["empresa"] = empresa_name
-                    self._log(f"✅ [Hugging Face] Enriquecimiento exitoso con '{model_name}' (Categoría: {data.get('categoria_moodle')}).", "success", cb)
-                    return data
-                except Exception as e:
-                    self._log(f"Aviso con modelo Hugging Face '{model_name}': {e}. Intentando siguiente...", "warn", cb)
+                        try:
+                            data = json.loads(raw, strict=False)
+                        except Exception:
+                            cleaned_raw = re.sub(r'[\r\n]+', r'\\n', raw)
+                            data = json.loads(cleaned_raw, strict=False)
+
+                        data["url"] = url
+                        if is_task:
+                            data["categoria_moodle"] = "Tareas"
+                        elif is_job_post:
+                            data["categoria_moodle"] = "Interns & Job Offers"
+                        elif data.get("categoria_moodle") == "Tareas":
+                            # Las Tareas son SOLO si trae enlace de Canva; si no, colocar en Recursos (ej. Becas/Embajadores)
+                            data["categoria_moodle"] = "Recursos"
+
+                        data["nombre"] = self.format_title_with_date(data.get("nombre", "Recurso Destacado"))
+                        data["descripcion_html"] = self.attach_header_to_html(
+                            data.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
+                        )
+                        data["empresa"] = empresa_name
+                        self._log(f"✅ [Hugging Face Token #{token_idx}] Enriquecimiento exitoso con '{model_name}' (Categoría: {data.get('categoria_moodle')}).", "success", cb)
+                        return data
+                    except Exception as e:
+                        self._log(f"Aviso con Token #{token_idx} y modelo Hugging Face '{model_name}': {e}. Intentando siguiente...", "warn", cb)
 
         # 2. 🥈 PRIORIDAD 2: Google AI Studio Gemini API
         gemini_res = self.call_gemini_api(active_system_prompt, user_prompt, cb=cb)
