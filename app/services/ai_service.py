@@ -278,22 +278,7 @@ class AIService:
         if not self.groq_keys:
             return None
 
-    def enforce_gemini_rate_limit(self, cb: Optional[Callable[[str, str], None]] = None):
-        """Pausa estratégica de 4.5 segundos para no exceder jamás el límite estricto de 15 RPM en Gemini."""
-        now = time.time()
-        elapsed = now - self.last_gemini_call
-        if elapsed < 4.5:
-            sleep_time = 4.5 - elapsed
-            self._log(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...", "info", cb)
-            time.sleep(sleep_time)
-        self.last_gemini_call = time.time()
 
-    def call_gemini_api(
-        self, system_prompt: str, user_prompt: str, cb: Optional[Callable[[str, str], None]] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Llama a la API de Google AI Studio Gemini."""
-        if not self.gemini_key or self.gemini_key == "tu_gemini_api_key_aqui":
-            return None
 
         self.enforce_gemini_rate_limit(cb)
 
@@ -315,17 +300,24 @@ class AIService:
                     "generationConfig": {
                         "responseMimeType": "application/json",
                         "temperature": 0.2,
-                        "maxOutputTokens": 1100
+                        "maxOutputTokens": 4096
                     }
                 }
 
-                with httpx.Client(timeout=15.0) as client:
+                with httpx.Client(timeout=30.0) as client:
                     response = client.post(endpoint, json=payload)
                     if response.status_code == 200:
                         res_data = response.json()
                         candidates = res_data.get("candidates", [])
                         if candidates:
-                            raw_text = candidates[0]["content"]["parts"][0]["text"]
+                            raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
+                            if raw_text.startswith("```json"):
+                                raw_text = raw_text[7:]
+                            if raw_text.startswith("```"):
+                                raw_text = raw_text[3:]
+                            if raw_text.endswith("```"):
+                                raw_text = raw_text[:-3]
+                            raw_text = raw_text.strip()
                             parsed = json.loads(raw_text, strict=False)
                             self._log(f"✅ Enriquecimiento exitoso con Google AI Studio Gemini ('{model_name}').", "success", cb)
                             return parsed
@@ -386,6 +378,24 @@ class AIService:
                     self._log(f"Aviso al consultar Groq ({model_name}): {e}", "warn", cb)
 
         return None
+
+
+    def enforce_gemini_rate_limit(self, cb: Optional[Callable[[str, str], None]] = None):
+        """Pausa estratégica de 4.5 segundos para no exceder jamás el límite estricto de 15 RPM en Gemini."""
+        now = time.time()
+        elapsed = now - self.last_gemini_call
+        if elapsed < 4.5:
+            sleep_time = 4.5 - elapsed
+            self._log(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...", "info", cb)
+            time.sleep(sleep_time)
+        self.last_gemini_call = time.time()
+
+    def call_gemini_api(
+        self, system_prompt: str, user_prompt: str, cb: Optional[Callable[[str, str], None]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Llama a la API de Google AI Studio Gemini."""
+        if not self.gemini_key or self.gemini_key == "tu_gemini_api_key_aqui":
+            return None
 
     def parse_linkedin_iframe(self, linkedin_url: Optional[str]) -> Optional[str]:
         """Transforma una URL de publicación de LinkedIn (Web, App Móvil o URN) en un iframe incrustado oficial."""
