@@ -15,6 +15,7 @@ class Config:
     API_SECRET: str = os.getenv("API_SECRET", "mi_clave_secreta")
     GROQ_API_KEY_1: str = os.getenv("GROQ_API_KEY_1", "")
     GROQ_API_KEY_2: str = os.getenv("GROQ_API_KEY_2", "")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     NGROK_AUTHTOKEN: str = os.getenv("NGROK_AUTHTOKEN", "")
     
     SESSION_FILE: str = "session.json"

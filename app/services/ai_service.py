@@ -35,6 +35,13 @@ GROQ_MODELS_POOL = [
     "llama-3.1-8b-instant",
 ]
 
+GEMINI_MODELS_POOL = [
+    "gemini-2.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash-8b",
+]
+
 GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
 
 REGLAS E STRICTAS DE CLASIFICACIÓN EN MOODLE:
@@ -238,8 +245,10 @@ Responde ÚNICAMENTE un JSON válido con esta estructura.
 class AIService:
     def __init__(self):
         self.groq_keys = config.GROQ_API_KEYS
+        self.gemini_key = config.GEMINI_API_KEY
         self.current_key_idx = 0
         self.last_call = 0.0
+        self.last_gemini_call = 0.0
 
     def _log(self, msg: str, level: str = "info", cb: Optional[Callable[[str, str], None]] = None):
         print(msg)
@@ -269,6 +278,66 @@ class AIService:
         """Llama a la API de Groq con balanceo entre los 2 tokens configurados."""
         if not self.groq_keys:
             return None
+
+    def enforce_gemini_rate_limit(self, cb: Optional[Callable[[str, str], None]] = None):
+        """Pausa estratégica de 4.5 segundos para no exceder jamás el límite estricto de 15 RPM en Gemini."""
+        now = time.time()
+        elapsed = now - self.last_gemini_call
+        if elapsed < 4.5:
+            sleep_time = 4.5 - elapsed
+            self._log(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...", "info", cb)
+            time.sleep(sleep_time)
+        self.last_gemini_call = time.time()
+
+    def call_gemini_api(
+        self, system_prompt: str, user_prompt: str, cb: Optional[Callable[[str, str], None]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Llama a la API de Google AI Studio Gemini."""
+        if not self.gemini_key or self.gemini_key == "tu_gemini_api_key_aqui":
+            return None
+
+        self.enforce_gemini_rate_limit(cb)
+
+        for model_name in GEMINI_MODELS_POOL:
+            try:
+                self._log(f"🌟 Solicitando enriquecimiento a Google AI Studio: '{model_name}'...", "info", cb)
+                endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.gemini_key}"
+                
+                payload = {
+                    "system_instruction": {
+                        "parts": [{"text": system_prompt}]
+                    },
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": user_prompt}]
+                        }
+                    ],
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        "temperature": 0.2,
+                        "maxOutputTokens": 1100
+                    }
+                }
+
+                with httpx.Client(timeout=15.0) as client:
+                    response = client.post(endpoint, json=payload)
+                    if response.status_code == 200:
+                        res_data = response.json()
+                        candidates = res_data.get("candidates", [])
+                        if candidates:
+                            raw_text = candidates[0]["content"]["parts"][0]["text"]
+                            parsed = json.loads(raw_text, strict=False)
+                            self._log(f"✅ Enriquecimiento exitoso con Google AI Studio Gemini ('{model_name}').", "success", cb)
+                            return parsed
+                    elif response.status_code == 429:
+                        self._log(f"⚠️ Rate limit 429 alcanzado en Gemini ('{model_name}'). Probando siguiente modelo...", "warn", cb)
+                    else:
+                        self._log(f"Aviso en Gemini ('{model_name}'): HTTP {response.status_code} - {response.text[:150]}", "warn", cb)
+            except Exception as e:
+                self._log(f"Aviso al consultar Google AI Studio ({model_name}): {e}", "warn", cb)
+
+        return None
 
         self.enforce_rate_limit(cb)
 
@@ -637,6 +706,25 @@ class AIService:
             )
             groq_res["empresa"] = empresa_name
             return groq_res
+            
+        gemini_res = self.call_gemini_api(active_system_prompt, user_prompt, cb=cb)
+        if gemini_res:
+            gemini_res["url"] = url
+            if is_task:
+                gemini_res["categoria_moodle"] = "Tareas"
+            elif is_job_post:
+                gemini_res["categoria_moodle"] = "Interns & Job Offers"
+            elif gemini_res.get("categoria_moodle") == "Tareas":
+                gemini_res["categoria_moodle"] = "Recursos"
+            elif is_course and gemini_res.get("categoria_moodle") == "Interns & Job Offers":
+                gemini_res["categoria_moodle"] = "Recursos"
+
+            gemini_res["nombre"] = self.format_title_with_date(gemini_res.get("nombre", "Recurso Destacado"))
+            gemini_res["descripcion_html"] = self.attach_header_to_html(
+                gemini_res.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
+            )
+            gemini_res["empresa"] = empresa_name
+            return gemini_res
 
         self._log("💡 Utilizando Motor Sintético Local de Respaldo.", "info", cb)
         return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url, cb=cb)
@@ -650,8 +738,10 @@ class AIService:
         """
         self._log("🤖 Modi está analizando la estructura del mensaje del chat...", "info", cb)
 
-        # 1. Intentar llamar a Gemini o Hugging Face
+        # 1. Intentar llamar a Groq, si falla, Gemini
         parsed = self.call_groq_api(CHAT_PARSER_SYSTEM_PROMPT, message, cb=cb)
+        if not parsed:
+            parsed = self.call_gemini_api(CHAT_PARSER_SYSTEM_PROMPT, message, cb=cb)
         if not parsed:
             # Respaldo de regex
             urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', message)
