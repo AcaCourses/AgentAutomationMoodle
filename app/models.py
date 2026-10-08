@@ -39,7 +39,11 @@ class ChatPayload(BaseModel):
     )
     course_id: Optional[Union[int, str, List[Union[int, str]]]] = Field(default=None)
     seccion: Optional[int] = Field(default=None)
+    auto_publish: bool = Field(default=True, description="Si es false, solo procesa con IA y devuelve el preview sin publicar en Moodle.")
 
+class PublishPayload(BaseModel):
+    item_recurso: dict = Field(..., description="El diccionario del recurso preparado por la IA")
+    course_id: Optional[Union[int, str, List[Union[int, str]]]] = Field(default=None, description="El curso destino")
 
 
 class RecursoItem(BaseModel):

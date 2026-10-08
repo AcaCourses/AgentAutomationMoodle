@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 
 from app.config import config
-from app.models import LinkedInPayload, ChatPayload
+from app.models import LinkedInPayload, ChatPayload, PublishPayload
 from app.services.ai_service import AIService
 from app.services.moodle_service import MoodleService
 from app.services.ngrok_service import setup_ngrok_tunnel
@@ -314,17 +314,79 @@ async def webhook_chat_stream(payload: ChatPayload, x_token: str = Header(None))
                 "dias_entrega": 15,
             }
 
-            send_log("🎭 Iniciando automatización con Playwright en Moodle SEA Acatlán...", "info")
-            cursos_publicados = moodle_service.publish_item(item_recurso, course_id=target_course_id, log_cb=send_log)
+            if not payload.auto_publish:
+                send_log("🛑 Auto-publicación desactivada. Pausado para confirmación manual.", "warn")
+                result = {
+                    "status": "pending_approval",
+                    "publicado": datos_ia.get("nombre"),
+                    "empresa": datos_ia.get("empresa"),
+                    "categoria_moodle": datos_ia.get("categoria_moodle"),
+                    "cursos_afectados": [],
+                    "datos_ia": datos_ia,
+                    "parsed_chat": parsed_chat,
+                    "item_recurso": item_recurso,
+                    "course_id": target_course_id
+                }
+                event_queue.put({"type": "result", "data": result})
+            else:
+                send_log("🎭 Iniciando automatización con Playwright en Moodle SEA Acatlán...", "info")
+                cursos_publicados = moodle_service.publish_item(item_recurso, course_id=target_course_id, log_cb=send_log)
 
+                result = {
+                    "status": "ok",
+                    "publicado": datos_ia.get("nombre"),
+                    "empresa": datos_ia.get("empresa"),
+                    "categoria_moodle": datos_ia.get("categoria_moodle"),
+                    "cursos_afectados": cursos_publicados,
+                    "datos_ia": datos_ia,
+                    "parsed_chat": parsed_chat,
+                }
+                event_queue.put({"type": "result", "data": result})
+        except Exception as e:
+            send_log(f"❌ Error durante la automatización: {str(e)}", "error")
+            event_queue.put({"type": "error", "detail": str(e)})
+        finally:
+            event_queue.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_generator():
+        while True:
+            try:
+                item = event_queue.get_nowait()
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+            except queue.Empty:
+                await asyncio.sleep(0.1)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/publish-prepared")
+async def publish_prepared_item(payload: PublishPayload, x_token: str = Header(None)):
+    """Toma un recurso ya preparado por la IA y lo publica en Moodle (Confirmación Manual)"""
+    if x_token != config.API_SECRET:
+        raise HTTPException(
+            status_code=401, detail="Token inválido. Verifica el encabezado x-token."
+        )
+        
+    event_queue = queue.Queue()
+    def send_log(msg: str, level: str = "info"):
+        event_queue.put({"type": "log", "message": msg, "level": level})
+
+    def worker():
+        try:
+            send_log("✅ Confirmación recibida. Iniciando automatización con Playwright...", "info")
+            cursos_publicados = moodle_service.publish_item(
+                payload.item_recurso, 
+                course_id=payload.course_id, 
+                log_cb=send_log
+            )
             result = {
                 "status": "ok",
-                "publicado": datos_ia.get("nombre"),
-                "empresa": datos_ia.get("empresa"),
-                "categoria_moodle": datos_ia.get("categoria_moodle"),
+                "publicado": payload.item_recurso.get("nombre"),
                 "cursos_afectados": cursos_publicados,
-                "datos_ia": datos_ia,
-                "parsed_chat": parsed_chat,
             }
             event_queue.put({"type": "result", "data": result})
         except Exception as e:
