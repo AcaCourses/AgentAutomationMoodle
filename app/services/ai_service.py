@@ -6,7 +6,6 @@ import base64
 import httpx
 from typing import Dict, Any, List, Optional, Callable
 from urllib.parse import urlparse
-from huggingface_hub import InferenceClient
 from ddgs import DDGS
 from app.config import config
 
@@ -30,18 +29,10 @@ KNOWN_DOMAINS = {
     "canva": "canva.com",
 }
 
-GEMINI_MODELS_POOL = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-2.0-flash-exp",
-    "gemini-1.5-flash-8b",
-]
-
-HF_MODELS_POOL = [
-    "mistralai/Mistral-7B-Instruct-v0.2",
-    "HuggingFaceH4/zephyr-7b-beta",
-    "Qwen/Qwen2.5-Coder-7B-Instruct",
-    "meta-llama/Meta-Llama-3-8B-Instruct",
+GROQ_MODELS_POOL = [
+    "llama-3.3-70b-versatile",
+    "mixtral-8x7b-32768",
+    "llama-3.1-8b-instant",
 ]
 
 GENERAL_SYSTEM_PROMPT = """Eres un consultor académico y de carrera laboral para estudiantes de Matemáticas Aplicadas y Computación (MAC) e Ingeniería en FES Acatlán (UNAM).
@@ -246,10 +237,9 @@ Responde ÚNICAMENTE un JSON válido con esta estructura.
 
 class AIService:
     def __init__(self):
-        self.gemini_key = config.GEMINI_API_KEY
-        self.hf_tokens = config.HF_TOKENS
-        self.hf_token = self.hf_tokens[0] if self.hf_tokens else config.HF_TOKEN
-        self.last_gemini_call = 0.0
+        self.groq_keys = config.GROQ_API_KEYS
+        self.current_key_idx = 0
+        self.last_call = 0.0
 
     def _log(self, msg: str, level: str = "info", cb: Optional[Callable[[str, str], None]] = None):
         print(msg)
@@ -259,63 +249,73 @@ class AIService:
             except Exception:
                 pass
 
-    def enforce_gemini_rate_limit(self, cb: Optional[Callable[[str, str], None]] = None):
-        """Pausa estratégica de 4.5 segundos para no exceder jamás el límite estricto de 15 RPM en Gemini."""
-        now = time.time()
-        elapsed = now - self.last_gemini_call
-        if elapsed < 4.5:
-            sleep_time = 4.5 - elapsed
-            self._log(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...", "info", cb)
-            time.sleep(sleep_time)
-        self.last_gemini_call = time.time()
+    def get_next_groq_key(self):
+        if not self.groq_keys:
+            return None
+        key = self.groq_keys[self.current_key_idx]
+        self.current_key_idx = (self.current_key_idx + 1) % len(self.groq_keys)
+        return key
 
-    def call_gemini_api(
-        self, system_prompt: str, user_prompt: str, cb: Optional[Callable[[str, str], None]] = None
+    def enforce_rate_limit(self, cb: Optional[Callable[[str, str], None]] = None):
+        now = time.time()
+        elapsed = now - self.last_call
+        if elapsed < 1.0:
+            time.sleep(1.0 - elapsed)
+        self.last_call = time.time()
+
+    def call_groq_api(
+        self, system_prompt: str, user_prompt: str, is_json: bool = True, cb: Optional[Callable[[str, str], None]] = None
     ) -> Optional[Dict[str, Any]]:
-        """Llama a la API de Google AI Studio Gemini con garantía de JSON estructurado y control estricto de cuota."""
-        if not self.gemini_key or self.gemini_key == "tu_gemini_api_key_aqui":
+        """Llama a la API de Groq con balanceo entre los 2 tokens configurados."""
+        if not self.groq_keys:
             return None
 
-        self.enforce_gemini_rate_limit(cb)
+        self.enforce_rate_limit(cb)
 
-        for model_name in GEMINI_MODELS_POOL:
-            try:
-                self._log(f"🌟 Solicitando enriquecimiento a Google AI Studio: '{model_name}'...", "info", cb)
-                endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.gemini_key}"
-                
-                payload = {
-                    "system_instruction": {
-                        "parts": [{"text": system_prompt}]
-                    },
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [{"text": user_prompt}]
-                        }
-                    ],
-                    "generationConfig": {
-                        "responseMimeType": "application/json",
+        for attempt in range(len(self.groq_keys)):
+            token = self.get_next_groq_key()
+            if not token:
+                continue
+
+            for model_name in GROQ_MODELS_POOL:
+                try:
+                    self._log(f"🌟 Solicitando enriquecimiento a Groq: '{model_name}' con Token #{self.current_key_idx}...", "info", cb)
+                    endpoint = "https://api.groq.com/openai/v1/chat/completions"
+                    
+                    payload = {
+                        "model": model_name,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
                         "temperature": 0.2,
-                        "maxOutputTokens": 1100
+                        "max_tokens": 1100
                     }
-                }
+                    if is_json:
+                        payload["response_format"] = {"type": "json_object"}
 
-                with httpx.Client(timeout=15.0) as client:
-                    response = client.post(endpoint, json=payload)
-                    if response.status_code == 200:
-                        res_data = response.json()
-                        candidates = res_data.get("candidates", [])
-                        if candidates:
-                            raw_text = candidates[0]["content"]["parts"][0]["text"]
-                            parsed = json.loads(raw_text, strict=False)
-                            self._log(f"✅ Enriquecimiento exitoso con Google AI Studio Gemini ('{model_name}').", "success", cb)
-                            return parsed
-                    elif response.status_code == 429:
-                        self._log(f"⚠️ Rate limit 429 alcanzado en Gemini ('{model_name}'). Probando siguiente modelo...", "warn", cb)
-                    else:
-                        self._log(f"Aviso en Gemini ('{model_name}'): HTTP {response.status_code} - {response.text[:150]}", "warn", cb)
-            except Exception as e:
-                self._log(f"Aviso al consultar Google AI Studio ({model_name}): {e}", "warn", cb)
+                    headers = {
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    }
+
+                    with httpx.Client(timeout=15.0) as client:
+                        response = client.post(endpoint, json=payload, headers=headers)
+                        if response.status_code == 200:
+                            res_data = response.json()
+                            content = res_data["choices"][0]["message"]["content"]
+                            if is_json:
+                                parsed = json.loads(content, strict=False)
+                                self._log(f"✅ Enriquecimiento exitoso con Groq ('{model_name}').", "success", cb)
+                                return parsed
+                            return {"text": content}
+                        elif response.status_code == 429:
+                            self._log(f"⚠️ Rate limit 429 alcanzado en Groq ('{model_name}'). Probando siguiente token...", "warn", cb)
+                            break
+                        else:
+                            self._log(f"Aviso en Groq ('{model_name}'): HTTP {response.status_code} - {response.text[:150]}", "warn", cb)
+                except Exception as e:
+                    self._log(f"Aviso al consultar Groq ({model_name}): {e}", "warn", cb)
 
         return None
 
@@ -583,10 +583,7 @@ class AIService:
         self, texto: str, url: str, empresa_input: Optional[str] = None, linkedin_url: Optional[str] = None, cb: Optional[Callable[[str, str], None]] = None
     ) -> Dict[str, Any]:
         """
-        Jerarquía de Ejecución optimizada (Priorizando Hugging Face por solicitud del usuario):
-        1. 🥇 Hugging Face Pool (Qwen 72B / Llama 70B / Qwen Coder 32B / Mistral Nemo)
-        2. 🥈 Google AI Studio Gemini API (gemini-1.5-flash / gemini-1.5-pro / gemini-2.0-flash-exp)
-        3. 🥉 Motor Sintético Local
+        Jerarquía de Ejecución optimizada (Groq + Respaldos):
         """
         logo_info = self.resolve_company_logo(empresa_input, url, texto, cb=cb)
         empresa_name = logo_info["nombre_empresa"]
@@ -622,93 +619,25 @@ class AIService:
             f"Datos de Investigación Web sobre {empresa_name} y Mercado:\n{research_str}"
         )
 
-        # 1. 🥇 PRIORIDAD 1: Hugging Face Inference API con Rotación de Tokens (Preferencia del Usuario)
-        active_tokens = self.hf_tokens if self.hf_tokens else ([self.hf_token] if self.hf_token and self.hf_token != "hf_tu_token_aqui" else [])
-        if active_tokens:
-            for token_idx, token in enumerate(active_tokens, start=1):
-                for model_name in HF_MODELS_POOL:
-                    try:
-                        self._log(f"🤗 [Hugging Face (Token #{token_idx})] Clasificando y enriqueciendo con modelo: '{model_name}'...", "info", cb)
-                        try:
-                            client = InferenceClient(model=f"{model_name}:fastest", token=token)
-                            res = client.chat_completion(
-                                messages=[
-                                    {"role": "system", "content": active_system_prompt},
-                                    {"role": "user", "content": user_prompt},
-                                ],
-                                max_tokens=1100,
-                                temperature=0.2
-                            )
-                        except Exception:
-                            # Intentar con el modelo directo en provider hf-inference
-                            client = InferenceClient(model=model_name, token=token, provider="hf-inference")
-                            res = client.chat_completion(
-                                messages=[
-                                    {"role": "system", "content": active_system_prompt},
-                                    {"role": "user", "content": user_prompt},
-                                ],
-                                max_tokens=1100,
-                                temperature=0.2
-                            )
-                        raw = res.choices[0].message.content.strip()
-
-                        if "```" in raw:
-                            parts = raw.split("```")
-                            for p in parts:
-                                p_str = p.strip()
-                                if p_str.startswith("json"):
-                                    p_str = p_str[4:].strip()
-                                if p_str.startswith("{") and p_str.endswith("}"):
-                                    raw = p_str
-                                    break
-
-                        try:
-                            data = json.loads(raw, strict=False)
-                        except Exception:
-                            cleaned_raw = re.sub(r'[\r\n]+', r'\\n', raw)
-                            data = json.loads(cleaned_raw, strict=False)
-
-                        data["url"] = url
-                        if is_task:
-                            data["categoria_moodle"] = "Tareas"
-                        elif is_job_post:
-                            data["categoria_moodle"] = "Interns & Job Offers"
-                        elif data.get("categoria_moodle") == "Tareas":
-                            # Las Tareas son SOLO si trae enlace de Canva; si no, colocar en Recursos (ej. Becas/Embajadores)
-                            data["categoria_moodle"] = "Recursos"
-
-                        data["nombre"] = self.format_title_with_date(data.get("nombre", "Recurso Destacado"))
-                        data["descripcion_html"] = self.attach_header_to_html(
-                            data.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
-                        )
-                        data["empresa"] = empresa_name
-                        self._log(f"✅ [Hugging Face Token #{token_idx}] Enriquecimiento exitoso con '{model_name}' (Categoría: {data.get('categoria_moodle')}).", "success", cb)
-                        return data
-                    except Exception as e:
-                        self._log(f"Aviso con Token #{token_idx} y modelo Hugging Face '{model_name}': {e}. Intentando siguiente...", "warn", cb)
-
-        # 2. 🥈 PRIORIDAD 2: Google AI Studio Gemini API
-        gemini_res = self.call_gemini_api(active_system_prompt, user_prompt, cb=cb)
-        if gemini_res:
-            gemini_res["url"] = url
+        groq_res = self.call_groq_api(active_system_prompt, user_prompt, cb=cb)
+        if groq_res:
+            groq_res["url"] = url
             if is_task:
-                gemini_res["categoria_moodle"] = "Tareas"
+                groq_res["categoria_moodle"] = "Tareas"
             elif is_job_post:
-                gemini_res["categoria_moodle"] = "Interns & Job Offers"
-            elif gemini_res.get("categoria_moodle") == "Tareas":
-                # Las Tareas son SOLO si trae enlace de Canva; si no, colocar en Recursos (ej. Becas/Embajadores)
-                gemini_res["categoria_moodle"] = "Recursos"
-            elif is_course and gemini_res.get("categoria_moodle") == "Interns & Job Offers":
-                gemini_res["categoria_moodle"] = "Recursos"
+                groq_res["categoria_moodle"] = "Interns & Job Offers"
+            elif groq_res.get("categoria_moodle") == "Tareas":
+                groq_res["categoria_moodle"] = "Recursos"
+            elif is_course and groq_res.get("categoria_moodle") == "Interns & Job Offers":
+                groq_res["categoria_moodle"] = "Recursos"
 
-            gemini_res["nombre"] = self.format_title_with_date(gemini_res.get("nombre", "Recurso Destacado"))
-            gemini_res["descripcion_html"] = self.attach_header_to_html(
-                gemini_res.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
+            groq_res["nombre"] = self.format_title_with_date(groq_res.get("nombre", "Recurso Destacado"))
+            groq_res["descripcion_html"] = self.attach_header_to_html(
+                groq_res.get("descripcion_html", ""), logo_info, linkedin_url, cb=cb
             )
-            gemini_res["empresa"] = empresa_name
-            return gemini_res
+            groq_res["empresa"] = empresa_name
+            return groq_res
 
-        # 3. 🥉 PRIORIDAD 3: Motor Sintético Local de Respaldo
         self._log("💡 Utilizando Motor Sintético Local de Respaldo.", "info", cb)
         return self._fallback_categorize_and_enrich(texto, url, research, logo_info, linkedin_url, cb=cb)
 
@@ -722,7 +651,7 @@ class AIService:
         self._log("🤖 Modi está analizando la estructura del mensaje del chat...", "info", cb)
 
         # 1. Intentar llamar a Gemini o Hugging Face
-        parsed = self.call_gemini_api(CHAT_PARSER_SYSTEM_PROMPT, message, cb=cb)
+        parsed = self.call_groq_api(CHAT_PARSER_SYSTEM_PROMPT, message, cb=cb)
         if not parsed:
             # Respaldo de regex
             urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', message)
