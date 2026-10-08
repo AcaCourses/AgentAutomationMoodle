@@ -30,11 +30,9 @@ KNOWN_DOMAINS = {
 }
 
 GROQ_MODELS_POOL = [
-    "meta/llama-3.3-70b-instruct",
-    "meta/llama-3.1-8b-instruct",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "qwen/qwen3.8-27b",
+    "qwen/qwen3.6-27b",
 ]
 
 GEMINI_MODELS_POOL = [
@@ -299,7 +297,8 @@ class AIService:
                             {"role": "user", "content": user_prompt}
                         ],
                         "temperature": 0.2,
-                        "max_tokens": 4096
+                        "max_tokens": 4096,
+                        "reasoning_effort": "low"
                     }
                     if is_json:
                         payload["response_format"] = {"type": "json_object"}
