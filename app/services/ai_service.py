@@ -278,7 +278,71 @@ class AIService:
         if not self.groq_keys:
             return None
 
+        self.enforce_rate_limit(cb)
 
+        for attempt in range(len(self.groq_keys)):
+            token = self.get_next_groq_key()
+            if not token:
+                continue
+
+            for model_name in GROQ_MODELS_POOL:
+                try:
+                    self._log(f"🌟 Solicitando enriquecimiento a Groq: '{model_name}' con Token #{self.current_key_idx}...", "info", cb)
+                    endpoint = "https://api.groq.com/openai/v1/chat/completions"
+                    
+                    payload = {
+                        "model": model_name,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        "temperature": 0.2,
+                        "max_tokens": 4096
+                    }
+                    if is_json:
+                        payload["response_format"] = {"type": "json_object"}
+
+                    headers = {
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    }
+
+                    with httpx.Client(timeout=15.0) as client:
+                        response = client.post(endpoint, json=payload, headers=headers)
+                        if response.status_code == 200:
+                            res_data = response.json()
+                            content = res_data["choices"][0]["message"]["content"]
+                            if is_json:
+                                parsed = json.loads(content, strict=False)
+                                self._log(f"✅ Enriquecimiento exitoso con Groq ('{model_name}').", "success", cb)
+                                return parsed
+                            return {"text": content}
+                        elif response.status_code == 429:
+                            self._log(f"⚠️ Rate limit 429 alcanzado en Groq ('{model_name}'). Probando siguiente token...", "warn", cb)
+                            break
+                        else:
+                            self._log(f"Aviso en Groq ('{model_name}'): HTTP {response.status_code} - {response.text[:150]}", "warn", cb)
+                except Exception as e:
+                    self._log(f"Aviso al consultar Groq ({model_name}): {e}", "warn", cb)
+
+        return None
+
+    def enforce_gemini_rate_limit(self, cb: Optional[Callable[[str, str], None]] = None):
+        """Pausa estratégica de 4.5 segundos para no exceder jamás el límite estricto de 15 RPM en Gemini."""
+        now = time.time()
+        elapsed = now - self.last_gemini_call
+        if elapsed < 4.5:
+            sleep_time = 4.5 - elapsed
+            self._log(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...", "info", cb)
+            time.sleep(sleep_time)
+        self.last_gemini_call = time.time()
+
+    def call_gemini_api(
+        self, system_prompt: str, user_prompt: str, cb: Optional[Callable[[str, str], None]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Llama a la API de Google AI Studio Gemini."""
+        if not self.gemini_key or self.gemini_key == "tu_gemini_api_key_aqui":
+            return None
 
         self.enforce_gemini_rate_limit(cb)
 
@@ -329,73 +393,6 @@ class AIService:
                 self._log(f"Aviso al consultar Google AI Studio ({model_name}): {e}", "warn", cb)
 
         return None
-
-        self.enforce_rate_limit(cb)
-
-        for attempt in range(len(self.groq_keys)):
-            token = self.get_next_groq_key()
-            if not token:
-                continue
-
-            for model_name in GROQ_MODELS_POOL:
-                try:
-                    self._log(f"🌟 Solicitando enriquecimiento a Groq: '{model_name}' con Token #{self.current_key_idx}...", "info", cb)
-                    endpoint = "https://api.groq.com/openai/v1/chat/completions"
-                    
-                    payload = {
-                        "model": model_name,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        "temperature": 0.2,
-                        "max_tokens": 1100
-                    }
-                    if is_json:
-                        payload["response_format"] = {"type": "json_object"}
-
-                    headers = {
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json"
-                    }
-
-                    with httpx.Client(timeout=15.0) as client:
-                        response = client.post(endpoint, json=payload, headers=headers)
-                        if response.status_code == 200:
-                            res_data = response.json()
-                            content = res_data["choices"][0]["message"]["content"]
-                            if is_json:
-                                parsed = json.loads(content, strict=False)
-                                self._log(f"✅ Enriquecimiento exitoso con Groq ('{model_name}').", "success", cb)
-                                return parsed
-                            return {"text": content}
-                        elif response.status_code == 429:
-                            self._log(f"⚠️ Rate limit 429 alcanzado en Groq ('{model_name}'). Probando siguiente token...", "warn", cb)
-                            break
-                        else:
-                            self._log(f"Aviso en Groq ('{model_name}'): HTTP {response.status_code} - {response.text[:150]}", "warn", cb)
-                except Exception as e:
-                    self._log(f"Aviso al consultar Groq ({model_name}): {e}", "warn", cb)
-
-        return None
-
-
-    def enforce_gemini_rate_limit(self, cb: Optional[Callable[[str, str], None]] = None):
-        """Pausa estratégica de 4.5 segundos para no exceder jamás el límite estricto de 15 RPM en Gemini."""
-        now = time.time()
-        elapsed = now - self.last_gemini_call
-        if elapsed < 4.5:
-            sleep_time = 4.5 - elapsed
-            self._log(f"⏱️ Guardián de Rate Limit Gemini: Pausa preventiva de {sleep_time:.2f}s...", "info", cb)
-            time.sleep(sleep_time)
-        self.last_gemini_call = time.time()
-
-    def call_gemini_api(
-        self, system_prompt: str, user_prompt: str, cb: Optional[Callable[[str, str], None]] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Llama a la API de Google AI Studio Gemini."""
-        if not self.gemini_key or self.gemini_key == "tu_gemini_api_key_aqui":
-            return None
 
     def parse_linkedin_iframe(self, linkedin_url: Optional[str]) -> Optional[str]:
         """Transforma una URL de publicación de LinkedIn (Web, App Móvil o URN) en un iframe incrustado oficial."""
